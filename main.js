@@ -857,11 +857,12 @@ async function animPlayDrop(beforeBoard, move) {
 }
 
 // ---- 返す: かご全体が 180° 回ってから、箱が落ち直す ----
+const FLIP_SLOW = 1.8; // 返すは大きく動くので、回すより長めに見せる
 async function animPlayFlip(beforeBoard, afterBoard, dur) {
   clearGhost();
   snap(beforeBoard, false);
   const flipEase = reduced.matches ? easeInOutCubic : easeInOutBack;
-  await tween(dur, (p) => {
+  await tween(dur * FLIP_SLOW, (p) => {
     cageGroup.quaternion.setFromAxisAngle(X_AXIS, Math.PI * flipEase(p));
     if (!reduced.matches) updateFlipStreak(p);
   });
@@ -893,7 +894,7 @@ async function animUndo(beforeBoard, afterBoard, move, dur) {
     snap(beforeBoard, false); // 返した盤は、元の盤を 180° 回した見た目と同じ。そこから逆に回して戻す
     cageGroup.quaternion.setFromAxisAngle(X_AXIS, Math.PI);
     const flipEase = reduced.matches ? easeInOutCubic : easeInOutBack;
-    await tween(dur, (p) => { cageGroup.quaternion.setFromAxisAngle(X_AXIS, Math.PI * (1 - flipEase(p))); });
+    await tween(dur * FLIP_SLOW, (p) => { cageGroup.quaternion.setFromAxisAngle(X_AXIS, Math.PI * (1 - flipEase(p))); });
     cageGroup.quaternion.identity();
   }
   snap(beforeBoard, false);

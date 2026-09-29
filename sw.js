@@ -9,7 +9,7 @@
 // keys.filter(k => k !== CACHE) のように書くと、ほかのアプリのキャッシュまで消してしまう。
 
 const PREFIX = 'dropturn-';
-const VERSION = 'v16';
+const VERSION = 'v17';
 const CACHE = `${PREFIX}${VERSION}`;
 const FONT_CACHE = `${PREFIX}fonts`;
 
