@@ -89,6 +89,16 @@ export const EDGE_TILTS = [
   { axis: 'z', dir: 1 }, { axis: 'z', dir: -1 },
 ];
 
+// 「下にしたい面」（局所座標のどちらの端か。x-/x+/y+/z-/z+）→ その面が下（y=0）に来る手。
+// rotateWhole の座標の対応から出した固定の対応（y- は今も下なので選べない＝キーを持たない）。
+export const FACE_TILT = {
+  'z-': { type: 'tilt', axis: 'x', dir: 1 },
+  'z+': { type: 'tilt', axis: 'x', dir: -1 },
+  'x+': { type: 'tilt', axis: 'z', dir: 1 },
+  'x-': { type: 'tilt', axis: 'z', dir: -1 },
+  'y+': { type: 'flip' },
+};
+
 // 各列、下が空いていれば順番を保ったまま詰める
 export function gravity(board) {
   const b = newBoard();

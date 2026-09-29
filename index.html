@@ -96,13 +96,8 @@
           <button class="btn btn--main" id="decide">返す</button>
         </div>
 
-        <!-- エクストラルールの「倒す」の方向えらび -->
+        <!-- エクストラルールの「倒す」: 下にしたい面はかごをタップして選ぶ（このボタンは「やめる」だけ） -->
         <div class="tilt-choices" id="tilt-choices" hidden>
-          <button class="btn" data-tilt="front">手前へ</button>
-          <button class="btn" data-tilt="back">奥へ</button>
-          <button class="btn" data-tilt="left">左へ</button>
-          <button class="btn" data-tilt="right">右へ</button>
-          <button class="btn" data-tilt="flip">ひっくり返す</button>
           <button class="btn btn--quiet" data-tilt="cancel">やめる</button>
         </div>
       </div>
@@ -133,7 +128,7 @@
         <li>軸がなく、3×3×3 = 27 マスすべてに箱が入る。落とす入口は上面の 9 列すべて。</li>
         <li>勝ちの線は縦・横・柱・面と断面の斜め・立体の対角線を含む全 49 本。真ん中を通る線や立体の対角線でもそろえば勝ち。</li>
         <li><b>回す</b>: かごの上でスワイプ。横に動かすとそのマスを通る横の段が、指の動いた向きに回る。縦に動かすと、そのマスを通り画面に向いた面に平行な縦の 1 枚が、指の動いた向きに回る（タップで横の段を回す操作も使える）。</li>
-        <li><b>倒す</b>: 「返す」→ 手前・奥・左・右（今の見た目の向き）にかご全体を倒すか、上下ひっくり返すかを選ぶ。</li>
+        <li><b>倒す</b>: 「返す」→ かごの、下にしたい面をタップ。上の面をタップするとひっくり返す。下の面は選べない。</li>
       </ol>
       <p class="help__note">タイトルの「公式 / エクストラ」で切り替える。対局中は変わらない。</p>
       <button class="btn btn--main" id="help-close">わかった</button>

@@ -290,4 +290,29 @@ for (const players of [2, 3, 4]) {
 }
 console.log('エクストラ 色・手持ちの割り当て: ok');
 
+// ---- 「下にしたい面」をタップしたときの対応（FACE_TILT）。その面がちょうど下（y=0）に来る ----
+{
+  const faceCells = (key) => {
+    const [axis, side] = [key[0], key[1]];
+    const v = side === '+' ? 2 : 0;
+    const cells = [];
+    for (let x = 0; x < E.N; x++) for (let y = 0; y < E.N; y++) for (let z = 0; z < E.N; z++) {
+      const c = { x, y, z }[axis];
+      if (c === v) cells.push(E.idx(x, y, z));
+    }
+    return cells;
+  };
+  for (const [key, move] of Object.entries(E.FACE_TILT)) {
+    let b = E.newBoard();
+    faceCells(key).forEach((i) => { b[i] = 1; }); // 選んだ面だけ埋める
+    const after = move.type === 'flip' ? E.gravity(E.flipBoard(b)) : E.gravity(E.rotateWhole(b, move.axis, move.dir));
+    for (let i = 0; i < E.TOTAL; i++) {
+      if (after[i] === E.EMPTY) continue;
+      assert.equal(E.coordsOf(i).y, 0, `面 ${key} の手のあと、その面が下に来ていない`);
+    }
+    assert.equal(after.filter((v) => v !== E.EMPTY).length, 9, `面 ${key} の手で箱の数が変わった`);
+  }
+}
+console.log('エクストラ 面 → 倒す手の対応: ok');
+
 console.log('すべて合格（エクストラルール）');

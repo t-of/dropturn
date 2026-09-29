@@ -264,13 +264,15 @@ function setPlayerGlow(hex) {
 
 const cageGroup = new THREE.Group();
 const frameGroup = new THREE.Group();
+const frameGroupE = new THREE.Group(); // エクストラルール（軸なし）のジャングルジム状の骨組み
 const panelGroup = new THREE.Group();
 const tierFrames = [0, 1, 2].map(() => new THREE.Group());
 frameGroup.add(...tierFrames);
 const cubesGroup = new THREE.Group();
 const markerGroup = new THREE.Group();
 const markerGroupE = new THREE.Group(); // エクストラルール（軸なし）の入口 9 か所
-cageGroup.add(frameGroup, panelGroup, cubesGroup, markerGroup, markerGroupE);
+const faceTapGroup = new THREE.Group(); // エクストラルール「倒す」: 下にしたい面を選ぶタップの的
+cageGroup.add(frameGroup, frameGroupE, panelGroup, cubesGroup, markerGroup, markerGroupE, faceTapGroup);
 scene.add(cageGroup);
 
 // ---- かごの枠（墨色のフラットな面）と、少し透ける側面 ----
@@ -356,6 +358,18 @@ function buildFrame() {
 }
 buildFrame();
 
+// エクストラルール（軸なし）は段を分けて回さないので、格子（ジャングルジム）はまるごと 1 つの
+// 固定の骨組みでよい。各マスの境目の線を x・y・z 方向それぞれ 4×4 本、細い棒で描く。
+function buildCageExtra() {
+  const R = FRAME_R, lines = [-R, -R / 3, R / 3, R];
+  for (const a of lines) for (const b of lines) {
+    frameGroupE.add(edgeBetween([-R, a, b], [R, a, b], 0.028, postMat)); // x 方向
+    frameGroupE.add(edgeBetween([a, -R, b], [a, R, b], 0.028, postMat)); // y 方向
+    frameGroupE.add(edgeBetween([a, b, -R], [a, b, R], 0.028, postMat)); // z 方向
+  }
+}
+buildCageExtra();
+
 // ---- 段を選んでいるときの光る帯 ----
 const tierHighlightMat = new THREE.MeshBasicMaterial({ color: 0xf2b632, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false });
 const tierHighlightMesh = new THREE.Mesh(new THREE.CylinderGeometry(FRAME_R * 1.28, FRAME_R * 1.28, 0.86, 24, 1, true), tierHighlightMat);
@@ -409,6 +423,24 @@ function buildMarkersExtra() {
   }
 }
 buildMarkersExtra();
+
+// エクストラルール「倒す」: かごの内側に、下にしたい面をタップして選ぶための薄い板を 5 面ぶん置く
+// （下の面はすでに下なので置かない）。選べる面は薄く色を付け、指・マウスが乗った面は濃くする。
+const FACE_TAP_OPACITY = 0.16, FACE_TAP_HOVER_OPACITY = 0.42;
+function buildFaceTapMesh(key) {
+  const mat = new THREE.MeshBasicMaterial({ color: 0xf2b632, transparent: true, opacity: FACE_TAP_OPACITY, side: THREE.DoubleSide, depthWrite: false });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(PANEL_SIZE - 0.08, PANEL_SIZE - 0.08), mat);
+  const R = FRAME_R - 0.04;
+  if (key === 'z-') mesh.position.set(0, 0, -R);
+  else if (key === 'z+') mesh.position.set(0, 0, R);
+  else if (key === 'x-') { mesh.position.set(-R, 0, 0); mesh.rotation.y = Math.PI / 2; }
+  else if (key === 'x+') { mesh.position.set(R, 0, 0); mesh.rotation.y = Math.PI / 2; }
+  else if (key === 'y+') { mesh.position.set(0, R, 0); mesh.rotation.x = Math.PI / 2; }
+  mesh.visible = false;
+  mesh.userData = { face: key, move: GE.FACE_TILT[key] };
+  return mesh;
+}
+Object.keys(GE.FACE_TILT).forEach((key) => faceTapGroup.add(buildFaceTapMesh(key)));
 
 // 今のルールの入口の一覧・落とせるかの判定（公式は col、エクストラは x・z の組で区別する）
 const activeMarkerGroup = () => (MODE === 'extra' ? markerGroupE : markerGroup);
@@ -728,15 +760,46 @@ function pickCellExtra(x, y) {
   return { x: cell(local.x), y: cell(local.y), z: cell(local.z), point: hit.point.clone() };
 }
 
+// エクストラルール「倒す」の方向えらび中、タップ・カーソルの下にある面（下にできる 5 面のどれか）
+function pickFaceTilt(x, y) {
+  if (!faceTapGroup.visible) return null;
+  raycaster.setFromCamera(ndc(x, y), camera);
+  const hit = raycaster.intersectObjects(faceTapGroup.children, false)[0];
+  return hit ? hit.object : null;
+}
+let tiltHoverMesh = null; // マウスが乗っている面（濃く見せる。タッチはホバーなしでよい）
+function setTiltHover(mesh) {
+  if (tiltHoverMesh === mesh) return;
+  if (tiltHoverMesh) tiltHoverMesh.material.opacity = FACE_TAP_OPACITY;
+  tiltHoverMesh = mesh;
+  if (tiltHoverMesh) tiltHoverMesh.material.opacity = FACE_TAP_HOVER_OPACITY;
+  kick();
+}
+sceneCanvas.addEventListener('pointermove', (e) => {
+  if (pendingTilt && e.pointerType === 'mouse') setTiltHover(pickFaceTilt(e.clientX, e.clientY));
+});
+sceneCanvas.addEventListener('pointerleave', () => { if (pendingTilt) setTiltHover(null); });
+// 「倒す」の方向えらび中だけ、5 面の板を出す・隠す
+function updateTiltFaces() {
+  const show = MODE === 'extra' && pendingTilt;
+  faceTapGroup.visible = show;
+  faceTapGroup.children.forEach((m) => { m.visible = show; m.material.opacity = FACE_TAP_OPACITY; });
+  if (!show) tiltHoverMesh = null;
+  kick();
+}
+
 // 段は「かごをタップ」で直接決める。動かさずに離すと、離した位置がかごの中心より
 // 右なら右回り・左なら左回りで、その場で回す（決定は挟まない）。動かせば、いつもどおり視点が回る。
 let dragState = null;
 sceneCanvas.addEventListener('pointerdown', (e) => {
   sceneCanvas.setPointerCapture(e.pointerId);
   if (MODE === 'extra') {
-    let hit = null;
-    if (!busy && game && !game.over && !handDrag && !pendingTilt) hit = pickCellExtra(e.clientX, e.clientY);
-    dragState = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, hit, moved: false };
+    let hit = null, faceHit = null;
+    if (!busy && game && !game.over && !handDrag) {
+      if (pendingTilt) faceHit = pickFaceTilt(e.clientX, e.clientY);
+      else hit = pickCellExtra(e.clientX, e.clientY);
+    }
+    dragState = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, hit, faceHit, moved: false };
     kick();
     return;
   }
@@ -759,7 +822,7 @@ sceneCanvas.addEventListener('pointermove', (e) => {
   // エクストラルールでは、かごの上で始めたドラッグはスワイプ（回す）として離したときにまとめて判定する。
   // 視点を回すのは、空いた所で始めたドラッグだけ（公式と同じ）。
   if (MODE === 'extra' && dragState.hit) return;
-  if (!dragState.hit || dragState.moved) {
+  if ((!dragState.hit && !dragState.faceHit) || dragState.moved) {
     orbit.theta -= dx * 0.008;
     orbit.phi = Math.max(PHI_MIN, Math.min(PHI_MAX, orbit.phi - dy * 0.008));
     kick();
@@ -804,10 +867,21 @@ function endDragExtra(ds, e) {
   if (GE.isLegal(game, move)) { $('notice').textContent = ''; commit(move); }
   else { Sound.bad(); $('notice').textContent = BANNED_MOVE_MSG; kick(); }
 }
+// エクストラルール「倒す」: 動かさずに離した面が、下にしたい面（動かせば、いつもどおり視点回転）
+function endTiltFaceTap(ds) {
+  if (ds.moved || !ds.faceHit || busy) { kick(); return; }
+  const move = ds.faceHit.userData.move;
+  pendingTilt = false;
+  // render() は pendingTilt が外れたことで notice を空に戻すので、理由の文はそのあとに出す
+  if (!GE.isLegal(game, move)) { Sound.bad(); render(); $('notice').textContent = BANNED_MOVE_MSG; return; }
+  $('notice').textContent = '';
+  commit(move);
+}
 function endDrag(e) {
   const ds = dragState;
   dragState = null;
   if (!ds) { kick(); return; }
+  if (MODE === 'extra' && pendingTilt) { endTiltFaceTap(ds); return; }
   if (MODE === 'extra') { endDragExtra(ds, e); return; }
   if (ds.moved || !ds.hit || busy) { highlightTier(null); kick(); return; }
   const dir = e.clientX >= cageCenterScreenX() ? -1 : 1; // 右をタップ → 手前が右へ動く（上から見て左回り）
@@ -1211,6 +1285,7 @@ function resetScenePreview() {
 // 今のルールの見た目に合わせる（かごの枠・入口・「返す」ボタンの文字）
 function applyModeVisuals() {
   frameGroup.visible = MODE !== 'extra';
+  frameGroupE.visible = MODE === 'extra';
   markerGroup.visible = MODE !== 'extra';
   markerGroupE.visible = MODE === 'extra';
   $('flip-label').textContent = MODE === 'extra' ? '倒す' : '返す';
@@ -1349,28 +1424,13 @@ $('cancel').addEventListener('click', () => {
   render();
 });
 
-// エクストラルール: 「倒す」の方向（手前・奥・左・右は今の視点から見た向き）
-function faceTiltFor(vx, vz) {
-  return Math.abs(vx) >= Math.abs(vz) ? { axis: 'z', dir: vx > 0 ? 1 : -1 } : { axis: 'x', dir: vz > 0 ? -1 : 1 };
-}
-function resolveTiltDirection(choice) {
-  const front = faceTiltFor(Math.sin(orbit.theta), Math.cos(orbit.theta));
-  if (choice === 'front') return front;
-  if (choice === 'back') return { axis: front.axis, dir: -front.dir };
-  const right = faceTiltFor(Math.cos(orbit.theta), -Math.sin(orbit.theta));
-  if (choice === 'right') return right;
-  return { axis: right.axis, dir: -right.dir }; // 'left'
-}
+// エクストラルール「倒す」: 方向はボタンでなく、かごの面をタップして選ぶ（pickFaceTilt・endTiltFaceTap）。
+// ここは「やめる」だけ。
 $('tilt-choices').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-tilt]');
-  if (!b) return;
-  if (b.dataset.tilt === 'cancel') { pendingTilt = false; $('notice').textContent = ''; render(); return; }
-  if (busy) return;
-  const move = b.dataset.tilt === 'flip' ? { type: 'flip' } : { type: 'tilt', ...resolveTiltDirection(b.dataset.tilt) };
+  if (!e.target.closest('[data-tilt="cancel"]')) return;
   pendingTilt = false;
-  if (!GE.isLegal(game, move)) { Sound.bad(); $('notice').textContent = BANNED_MOVE_MSG; render(); return; }
   $('notice').textContent = '';
-  commit(move);
+  render();
 });
 
 // ---- 戻る（直前の 1 手だけ取り消す） ----
@@ -1457,6 +1517,7 @@ function render() {
 
   $('flip-confirm').hidden = !pendingFlip;
   $('tilt-choices').hidden = !pendingTilt;
+  updateTiltFaces();
 
   $('actions').hidden = game.over; // 結果カードの左右から操作ボタンがのぞかないように
   $('actions').querySelectorAll('[data-act]').forEach((b) => { b.disabled = busy || pendingFlip || pendingTilt; });
@@ -1465,7 +1526,9 @@ function render() {
 
   if (game.afterEmpty != null && !game.over) {
     $('notice').textContent = `あと ${game.afterEmpty} 手で引き分け`;
-  } else if (!pendingFlip && !pendingTilt) {
+  } else if (pendingTilt) {
+    $('notice').textContent = '下にしたい面をタップ';
+  } else if (!pendingFlip) {
     $('notice').textContent = '';
   }
 
