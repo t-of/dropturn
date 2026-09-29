@@ -48,7 +48,7 @@ const COLOR_META = [
 // 列 k(0-7) の (x, z) 位置（3×3 の外周。中心は軸でふさがっている）
 const COL_XZ = [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2], [1, 2], [0, 2], [0, 1]];
 const playerName = (p) => `プレイヤー ${p + 1}`;
-const BANNED_MOVE_MSG = '1 手前に戻す手、または何も変わらない手は指せません';
+const BANNED_MOVE_MSG = '1 手前に戻る手、または何も変わらない手は指せません（かごごと回した形も同じとみなす）';
 
 // ---- 設定・記録 ----
 function loadSettings() {

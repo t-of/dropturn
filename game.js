@@ -101,10 +101,20 @@ export function newGame(players, rng = Math.random) {
 
 const handEmpty = (h) => Object.values(h).every((v) => v === 0);
 
-// その手を指したら「何も変わらない」か「直前の手を打ち消す」ことになるか
+// かご全体を 90° ずつ回しただけの違いは同じ局面とみなす（下の段と上の段を同じ向きに回す＝真ん中を逆に回す、など）
+function sameUpToTurn(a, b) {
+  let x = a;
+  for (let k = 0; k < 4; k++) {
+    if (boardsEqual(x, b)) return true;
+    for (let t = 0; t < 3; t++) x = rotateBoard(x, t, 1);
+  }
+  return false;
+}
+
+// その手を指したら「何も変わらない」か「1 手前の局面に戻る」ことになるか
 function isBanned(state, candidate) {
-  if (boardsEqual(candidate, state.board)) return true;
-  if (state.prev && boardsEqual(candidate, state.prev)) return true;
+  if (sameUpToTurn(candidate, state.board)) return true;
+  if (state.prev && sameUpToTurn(candidate, state.prev)) return true;
   return false;
 }
 

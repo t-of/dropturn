@@ -119,8 +119,11 @@ console.log('色・手持ちの割り当て: ok');
 
 // ---- 戻す手の禁止 ----
 {
-  let g = newGame(2, () => 0); // 先手 P1
-  g = applyMove(g, { type: 'drop', color: 0, col: 0 });
+  // 下の段を埋めておく（回しても箱が落ちず、かごごと回した形とも違う盤）
+  const a = newBoard();
+  for (let c = 0; c < 8; c++) a[idx(c, 0)] = c % 3;
+  a[idx(0, 1)] = 3;
+  let g = { ...newGame(2, () => 0), board: a };
   const beforeRotate = g.board;
   g = applyMove(g, { type: 'rotate', tier: 0, dir: 1 }); // P2 が回す
   // P1 が同じ回転を逆に戻す手は禁止
@@ -128,6 +131,16 @@ console.log('色・手持ちの割り当て: ok');
   // 何も変わらない手（からの段を回す）も禁止
   assert.equal(isLegal(g, { type: 'rotate', tier: 2, dir: 1 }), false, '何も変わらない手が指せてしまう');
   void beforeRotate;
+}
+// 下を右、次に上を右で、かご全体を回しただけの形（= 1 手前と同じ局面）に戻るなら禁止
+{
+  const a = newBoard();
+  for (let c = 0; c < 8; c++) { a[idx(c, 0)] = c % 3; a[idx(c, 1)] = 4 + c % 2; } // 真ん中は 90° 回しても同じ
+  a[idx(0, 2)] = 5; a[idx(3, 2)] = 3;
+  let g = { ...newGame(2, () => 0), board: a };
+  g = applyMove(g, { type: 'rotate', tier: 0, dir: 1 });
+  assert.equal(isLegal(g, { type: 'rotate', tier: 2, dir: 1 }), false, 'かごごと回した形に戻る手が指せてしまう');
+  assert.equal(isLegal(g, { type: 'rotate', tier: 2, dir: -1 }), true, '戻らない手が禁止されている');
 }
 console.log('戻す手の禁止: ok');
 
