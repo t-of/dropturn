@@ -175,23 +175,32 @@ const yOf = (tier) => tier - 1;
 // かごの枠の半径（中心から面まで）。マスの間隔（1）の 1.5 倍で、3 マス分ぴったりの立方体になる。
 // 枠・軸・入口の目印・当たり判定・見た目のフィットは、すべてこの 1 つの値と offsetOf/yOf から作る。
 const FRAME_R = 1.5;
-const cornerOf = (col) => { const [x, z] = offsetOf(col); return [x * FRAME_R, z * FRAME_R]; };
+const PANEL_SIZE = FRAME_R * 2 + 0.1;
 const easeOutCubic = (t) => 1 - (1 - t) ** 3;
 const easeInOutCubic = (t) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
+// 回す・返すの終わりに少し行き過ぎてから戻る（t=1 でちょうど目標角度に着地する）
+const easeOutBack = (t) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2; };
+const easeInOutBack = (t) => {
+  const c1 = 1.70158, c2 = c1 * 1.525;
+  return t < 0.5
+    ? ((2 * t) ** 2 * ((c2 + 1) * 2 * t - c2)) / 2
+    : ((2 * t - 2) ** 2 * ((c2 + 1) * (t * 2 - 2) + c2) + 2) / 2;
+};
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const sceneCanvas = $('scene');
-const renderer = new THREE.WebGLRenderer({ canvas: sceneCanvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas: sceneCanvas, antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.setClearColor(0x000000, 0); // 背景は CSS の階調（scene-wrap のradial-gradient）を透かして見せる
 // リアルタイムの影（shadow map）は、古いスマホへの負荷と、特定の角度で床とかご・箱の
 // 組み合わせがちらつく描画の不具合が出たため使わない。かわりに、床に固定のぼかした影の
 // 絵（テクスチャ）を敷いて「浮いていない」感じだけを安く出す。
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x101626);
+scene.background = null;
 const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 50);
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.9));
@@ -203,6 +212,35 @@ scene.add(keyLight);
 const fillLight = new THREE.DirectionalLight(0x9fb6ff, 0.45);
 fillLight.position.set(-3, 1.2, -2.4);
 scene.add(fillLight);
+
+// ---- 環境マップ（真鍮・箱の照りに使う） ----
+// vendor に RoomEnvironment が無いので、色の違う面をいくつか置いた小さな部屋を自前で作り、
+// PMREMGenerator でぼかして環境マップにする（見た目は簡易な RoomEnvironment 相当。一度作るだけで毎フレームのコストはない）。
+function buildEnvironmentTexture() {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  pmrem.compileEquirectangularShader();
+  const envScene = new THREE.Scene();
+  const room = new THREE.Mesh(
+    new THREE.BoxGeometry(14, 14, 14),
+    new THREE.MeshStandardMaterial({ side: THREE.BackSide, color: 0x05070d, roughness: 1, metalness: 0 }),
+  );
+  envScene.add(room);
+  const panel = (x, y, z, w, h, color, intensity) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color }));
+    m.position.set(x, y, z);
+    m.lookAt(0, 0, 0);
+    m.material.color.multiplyScalar(intensity);
+    envScene.add(m);
+  };
+  panel(0, 6.9, 0, 7, 7, 0xfff1d6, 5);     // 上: 暖かい照明
+  panel(-6.9, 1, 3, 5, 9, 0x9fb6ff, 2.2);  // 左: 冷たい反射
+  panel(6.9, -1, -3, 5, 8, 0xd8c49a, 2.6); // 右: 真鍮色の反射
+  panel(0, -6.9, 0, 6, 6, 0x14181f, 0.6);  // 下: 暗い床の映り込み
+  const rt = pmrem.fromScene(envScene, 0.035);
+  pmrem.dispose();
+  return rt.texture;
+}
+scene.environment = buildEnvironmentTexture();
 
 function shadowBlobTexture() {
   const W = 256, cv = document.createElement('canvas');
@@ -216,13 +254,35 @@ function shadowBlobTexture() {
   x.fillRect(0, 0, W, W);
   return new THREE.CanvasTexture(cv);
 }
+// つやのある金属の台座（リアルタイム影は使わず、環境マップの映り込みだけで「乗っている」感じを出す）
+const pedestal = new THREE.Mesh(
+  new THREE.CylinderGeometry(FRAME_R * 1.55, FRAME_R * 1.7, 0.14, 40),
+  new THREE.MeshStandardMaterial({ color: 0x141a2c, metalness: 0.6, roughness: 0.22, envMapIntensity: 0.9 }),
+);
+pedestal.position.y = -FRAME_R - 0.12;
+scene.add(pedestal);
+
 const ground = new THREE.Mesh(
   new THREE.CircleGeometry(FRAME_R * 1.7, 28),
   new THREE.MeshBasicMaterial({ map: shadowBlobTexture(), transparent: true, depthWrite: false }),
 );
 ground.rotation.x = -Math.PI / 2;
-ground.position.y = -FRAME_R - 0.05;
+ground.position.y = -FRAME_R - 0.04;
 scene.add(ground);
+
+// 手番の色でうっすら光る、台座の縁の輪（player glow）
+const auraMat = new THREE.MeshBasicMaterial({ color: 0xd8c49a, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+const aura = new THREE.Mesh(new THREE.RingGeometry(FRAME_R * 1.56, FRAME_R * 1.82, 40), auraMat);
+aura.rotation.x = -Math.PI / 2;
+aura.position.y = -FRAME_R - 0.1;
+scene.add(aura);
+function setPlayerGlow(hex) {
+  const c = new THREE.Color(hex);
+  auraMat.color.copy(c);
+  postMat.emissive.copy(c);
+  postMat.emissiveIntensity = 0.16;
+  kick();
+}
 
 const cageGroup = new THREE.Group();
 const frameGroup = new THREE.Group();
@@ -235,8 +295,10 @@ scene.add(cageGroup);
 // ---- かごの枠（真鍮色）と、少し透ける側面 ----
 const BRASS = 0xd8c49a;
 // 金属らしい照りを出すため metalness を高めにし、roughness を低めにして反射を強くする。
-const postMat = new THREE.MeshStandardMaterial({ color: BRASS, metalness: 0.78, roughness: 0.28 });
-const axisMat = new THREE.MeshStandardMaterial({ color: 0xc2a876, metalness: 0.72, roughness: 0.32 });
+// envMapIntensity は環境マップ（buildEnvironmentTexture）の映り込みの強さ。
+const postMat = new THREE.MeshStandardMaterial({ color: BRASS, metalness: 0.85, roughness: 0.24, envMapIntensity: 1.1, emissive: 0x000000, emissiveIntensity: 0 });
+const axisMat = new THREE.MeshStandardMaterial({ color: 0xc2a876, metalness: 0.8, roughness: 0.28, envMapIntensity: 1.0 });
+const jointMat = new THREE.MeshStandardMaterial({ color: 0xead9b4, metalness: 0.9, roughness: 0.18, envMapIntensity: 1.2 });
 
 function edgeBetween(a, b, radius, material) {
   const start = new THREE.Vector3(...a), end = new THREE.Vector3(...b);
@@ -253,22 +315,57 @@ function buildFrame() {
   // かごはちょうど 3×3×3 マスの立方体（±FRAME_R）。枠の柱もこの範囲にきっちり収め、
   // 軸だけ突き出て見えないようにする。
   const Y0 = -FRAME_R, Y1 = FRAME_R;
-  const offs = COL_XZ.map((_, col) => cornerOf(col));
-  for (const [x, z] of offs) frameGroup.add(edgeBetween([x, Y0, z], [x, Y1, z], 0.07, postMat));
+  // 柱はマスの境目（±0.5・±1.5）に立てて、各面の窓を 3×3 にする（外周 12 本）
+  const R = FRAME_R, lines = [-R, -R / 3, R / 3, R];
+  const posts = [];
+  for (const x of lines) for (const z of lines) if (Math.abs(x) === R || Math.abs(z) === R) posts.push([x, z]);
+  for (const [x, z] of posts) frameGroup.add(edgeBetween([x, Y0, z], [x, Y1, z], 0.07, postMat));
   frameGroup.add(edgeBetween([0, Y0, 0], [0, Y1, 0], 0.14, axisMat)); // ふさがっている中心の軸
-  for (const y of [-1.5, -0.5, 0.5, 1.5]) {
-    for (let i = 0; i < 8; i++) {
-      const [x1, z1] = offs[i], [x2, z2] = offs[(i + 1) % 8];
+  const corners = [[-R, -R], [R, -R], [R, R], [-R, R]];
+  for (const y of lines) {
+    for (let i = 0; i < 4; i++) {
+      const [x1, z1] = corners[i], [x2, z2] = corners[(i + 1) % 4];
       frameGroup.add(edgeBetween([x1, y, z1], [x2, y, z2], 0.05, postMat));
     }
   }
+  // 柱の四隅の端に小さな面取りの金具を付けて、組み立てた機械らしくする（角のみ。中の柱は素通し）
+  const jointGeo = new THREE.IcosahedronGeometry(0.1, 1);
+  for (const y of [Y0, Y1]) {
+    for (const [x, z] of corners) {
+      const j = new THREE.Mesh(jointGeo, jointMat);
+      j.position.set(x, y, z);
+      frameGroup.add(j);
+    }
+    // 中心軸の上下の端にも小さなキャップ
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), jointMat);
+    cap.position.set(0, y, 0);
+    frameGroup.add(cap);
+  }
   // 側面をふさぐ 1 枚のガラス箱（内側だけ描く BackSide）。4 枚の板を別々に置くと、斜めから
   // 見たときに板どうしが重なって格子状のちらつきが出たので、継ぎ目のない 1 個の箱にした。
-  const panelMat = new THREE.MeshBasicMaterial({
-    color: BRASS, transparent: true, opacity: 0.05, depthWrite: false, side: THREE.BackSide,
+  // フレネル風のシェーダーで、面を正面から見ると透け、縁（視線が斜めになる場所）ほど明るくする。
+  const panelMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.BackSide, blending: THREE.AdditiveBlending,
+    uniforms: { uColor: { value: new THREE.Color(BRASS) } },
+    vertexShader: `
+      varying vec3 vNormal; varying vec3 vViewPosition;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vViewPosition = -mv.xyz;
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uColor;
+      varying vec3 vNormal; varying vec3 vViewPosition;
+      void main() {
+        float fresnel = pow(1.0 - clamp(abs(dot(normalize(vNormal), normalize(vViewPosition))), 0.0, 1.0), 2.4);
+        gl_FragColor = vec4(uColor, 0.03 + fresnel * 0.5);
+      }
+    `,
   });
-  const panelSize = FRAME_R * 2 + 0.1;
-  panelGroup.add(new THREE.Mesh(new THREE.BoxGeometry(panelSize, panelSize, panelSize), panelMat));
+  panelGroup.add(new THREE.Mesh(new THREE.BoxGeometry(PANEL_SIZE, PANEL_SIZE, PANEL_SIZE), panelMat));
 }
 buildFrame();
 
@@ -333,10 +430,14 @@ function cubeTexture(color) {
   const x = cv.getContext('2d');
   x.fillStyle = COLOR_META[color].hex;
   x.beginPath(); x.roundRect(3, 3, W - 6, W - 6, 16); x.fill();
-  x.fillStyle = 'rgba(0,0,0,0.55)';
+  // くぼんで刻印されたように見せる: 右下に薄い影、左上に薄いハイライトをずらして重ねる
   x.font = `${W * 0.52}px system-ui`;
   x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.fillText(COLOR_META[color].mark, W / 2, W / 2 + W * 0.03);
+  const mx = W / 2, my = W / 2 + W * 0.03;
+  x.fillStyle = 'rgba(255,255,255,0.22)';
+  x.fillText(COLOR_META[color].mark, mx - 1.5, my - 1.5);
+  x.fillStyle = 'rgba(0,0,0,0.58)';
+  x.fillText(COLOR_META[color].mark, mx + 1, my + 1);
   const t = new THREE.CanvasTexture(cv);
   t.colorSpace = THREE.SRGBColorSpace;
   cubeTexCache.set(color, t);
@@ -346,7 +447,11 @@ const cubeMatCache = new Map();
 function cubeMaterial(color, ghost) {
   const key = `${color}-${ghost}`;
   if (cubeMatCache.has(key)) return cubeMatCache.get(key);
-  const m = new THREE.MeshStandardMaterial({ map: cubeTexture(color), roughness: 0.55, metalness: 0.05 });
+  // MeshPhysicalMaterial の clearcoat で、樹脂のような薄いつやを箱の表面に乗せる
+  const m = new THREE.MeshPhysicalMaterial({
+    map: cubeTexture(color), roughness: 0.5, metalness: 0.05,
+    clearcoat: 0.55, clearcoatRoughness: 0.28, envMapIntensity: 0.55,
+  });
   if (ghost) { m.transparent = true; m.opacity = 0.42; m.depthWrite = false; }
   cubeMatCache.set(key, m);
   return m;
@@ -394,10 +499,31 @@ function snap(board, ghost = false) {
 }
 function clearGhost() { for (const m of ghostMeshes) m.removeFromParent(); ghostMeshes = []; kick(); }
 
-// ---- 勝ったときに、そろった箱を光らせる ----
+// ---- 勝ったときに、そろった箱を光らせる。線をつなぐ光の筋と、舞う光の粒も添える ----
 let winMeshes = [];
 let winPulsing = false;
+const winFxGroup = new THREE.Group();
+cageGroup.add(winFxGroup);
+// depthTest しない: 箱の内側を筋が通っても、箱に隠れず光って見えるように
+const winBeamMat = new THREE.MeshBasicMaterial({ color: 0xffe6a8, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
+function sparkleTexture() {
+  const W = 32, cv = document.createElement('canvas');
+  cv.width = cv.height = W;
+  const x = cv.getContext('2d');
+  const g = x.createRadialGradient(W / 2, W / 2, 0, W / 2, W / 2, W / 2);
+  g.addColorStop(0, 'rgba(255,255,255,0.95)');
+  g.addColorStop(0.4, 'rgba(255,225,170,0.55)');
+  g.addColorStop(1, 'rgba(255,225,170,0)');
+  x.fillStyle = g; x.fillRect(0, 0, W, W);
+  return new THREE.CanvasTexture(cv);
+}
+let sparklePoints = null, sparkleBase = [], sparklePhase = [];
+function clearWinFx() {
+  winFxGroup.clear();
+  sparklePoints = null; sparkleBase = []; sparklePhase = [];
+}
 function highlightWin(lines) {
+  clearWinFx();
   winMeshes = [];
   const idxSet = new Set(lines.flat());
   for (const i of idxSet) {
@@ -407,6 +533,33 @@ function highlightWin(lines) {
     m.material.emissive = new THREE.Color(0xffe6a8);
     m.material.emissiveIntensity = 0.4;
     winMeshes.push(m);
+  }
+  // 線をつなぐ光の筋（各線は 3 マス = 隣どうし 2 本）
+  for (const line of lines) {
+    for (let i = 0; i < line.length - 1; i++) {
+      const [c1, t1] = [Math.floor(line[i] / 3), line[i] % 3];
+      const [c2, t2] = [Math.floor(line[i + 1] / 3), line[i + 1] % 3];
+      winFxGroup.add(edgeBetween(cellPos(c1, t1), cellPos(c2, t2), 0.07, winBeamMat));
+    }
+  }
+  // 舞う光の粒（そろったマスの近くに少しだけ）
+  if (!reduced.matches) {
+    const positions = [];
+    for (const i of idxSet) {
+      const [c, t] = [Math.floor(i / 3), i % 3];
+      const [px, py, pz] = cellPos(c, t);
+      for (let n = 0; n < 2; n++) {
+        const bx = px + (Math.random() - 0.5) * 0.7, by = py + (Math.random() - 0.5) * 0.5, bz = pz + (Math.random() - 0.5) * 0.7;
+        sparkleBase.push([bx, by, bz]);
+        sparklePhase.push(Math.random() * Math.PI * 2);
+        positions.push(bx, by, bz);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    const mat = new THREE.PointsMaterial({ size: 0.16, map: sparkleTexture(), transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+    sparklePoints = new THREE.Points(geo, mat);
+    winFxGroup.add(sparklePoints);
   }
   winPulsing = winMeshes.length > 0;
   kick();
@@ -436,6 +589,16 @@ function frame(now) {
   if (winPulsing && !reduced.matches) {
     const k = 0.32 + 0.22 * Math.sin(now / 300);
     for (const m of winMeshes) m.material.emissiveIntensity = k;
+    winBeamMat.opacity = 0.3 + 0.3 * Math.sin(now / 260 + 1);
+    if (sparklePoints) {
+      const pos = sparklePoints.geometry.attributes.position;
+      for (let i = 0; i < sparkleBase.length; i++) {
+        const [bx, by, bz] = sparkleBase[i];
+        const ph = sparklePhase[i] + now / 900;
+        pos.setXYZ(i, bx + Math.sin(ph) * 0.05, by + ((now / 900 + sparklePhase[i]) % 1) * 0.5, bz + Math.cos(ph) * 0.05);
+      }
+      pos.needsUpdate = true;
+    }
   }
   updateCamera();
   renderer.render(scene, camera);
@@ -537,6 +700,34 @@ sceneCanvas.addEventListener('pointercancel', () => { dragState = null; kick(); 
 $('view-reset').addEventListener('click', () => { orbit = { ...HOME }; Sound.select(); kick(); });
 
 // ---- 重力で落ちる分だけ、位置をなめらかに動かす ----
+// ---- 着地の光の輪（箱が落ちた場所に、広がって消える輪） ----
+function spawnLandingRing(x, y, z) {
+  const geo = new THREE.RingGeometry(0.26, 0.38, 24);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffe6a8, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+  const ring = new THREE.Mesh(geo, mat);
+  ring.position.set(x, y - 0.39, z);
+  ring.rotation.x = -Math.PI / 2;
+  cubesGroup.add(ring);
+  tween(320, (p) => {
+    const s = 1 + p * 1.5;
+    ring.scale.set(s, s, s);
+    mat.opacity = 0.6 * (1 - p);
+  }).then(() => ring.removeFromParent());
+}
+
+// ---- 返すときに、かご全体を上から下へ通り抜ける光の筋（世界座標に置くので、かごの回転につられない） ----
+const flipStreakMat = new THREE.MeshBasicMaterial({ color: 0xfff1d6, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+const flipStreak = new THREE.Mesh(new THREE.PlaneGeometry(PANEL_SIZE * 1.15, PANEL_SIZE * 1.15), flipStreakMat);
+flipStreak.rotation.x = -Math.PI / 2;
+flipStreak.visible = false;
+scene.add(flipStreak);
+function updateFlipStreak(p) {
+  flipStreak.visible = true;
+  flipStreak.position.y = FRAME_R * 1.25 - p * FRAME_R * 2.5;
+  flipStreakMat.opacity = Math.sin(Math.min(1, p) * Math.PI) * 0.45;
+}
+function hideFlipStreak() { flipStreak.visible = false; flipStreakMat.opacity = 0; }
+
 async function animateGravitySettle(fromBoard, toBoard, dur) {
   const moves = [];
   for (let col = 0; col < 8; col++) {
@@ -572,7 +763,8 @@ async function animRotatePhysical(beforeBoard, move, dur, ghost) {
     pivot.add(mesh);
   }
   highlightTier(move.tier);
-  await tween(dur, (p) => pivot.quaternion.setFromAxisAngle(Y_AXIS, angle * easeOutCubic(p)));
+  const rotEase = reduced.matches ? easeOutCubic : easeOutBack;
+  await tween(dur, (p) => pivot.quaternion.setFromAxisAngle(Y_AXIS, angle * rotEase(p)));
   pivot.removeFromParent();
   const rotatedNoGravity = G.rotateBoard(beforeBoard, move.tier, move.dir);
   snap(rotatedNoGravity, ghost);
@@ -593,13 +785,26 @@ async function animPlayDrop(beforeBoard, move, dur) {
   cubesGroup.add(mesh);
   boxes[G.idx(move.col, tier)] = mesh;
   await tween(dur, (p) => { mesh.position.y = fromY + (toY - fromY) * easeOutCubic(p); });
+  if (!reduced.matches) {
+    spawnLandingRing(x, toY, z);
+    await tween(160, (p) => {
+      const s = 1 - Math.sin(p * Math.PI) * 0.14;
+      mesh.scale.set(1 + (1 - s) * 0.35, s, 1 + (1 - s) * 0.35); // 着地で小さくつぶれてから戻る
+    });
+    mesh.scale.set(1, 1, 1);
+  }
 }
 
 // ---- 返す: かご全体が 180° 回ってから、箱が落ち直す ----
 async function animPlayFlip(beforeBoard, afterBoard, dur) {
   clearGhost();
   snap(beforeBoard, false);
-  await tween(dur, (p) => cageGroup.quaternion.setFromAxisAngle(X_AXIS, Math.PI * easeInOutCubic(p)));
+  const flipEase = reduced.matches ? easeInOutCubic : easeInOutBack;
+  await tween(dur, (p) => {
+    cageGroup.quaternion.setFromAxisAngle(X_AXIS, Math.PI * flipEase(p));
+    if (!reduced.matches) updateFlipStreak(p);
+  });
+  hideFlipStreak();
   cageGroup.quaternion.identity();
   const noGravity = G.flipBoard(beforeBoard);
   snap(noGravity, false);
@@ -653,7 +858,7 @@ function trySetMove(move) {
   applyPreview(move);
 }
 
-// 予告: 落とす・返すは静かに半透明で見せる。回すは、そのとおりに段を回す。
+// 予告: 落とすは静かに半透明で見せる。回すは、そのとおりに段を回す。
 async function applyPreview(move) {
   const tok = ++animToken;
   if (move.type === 'drop') {
@@ -666,9 +871,6 @@ async function applyPreview(move) {
       ghostMeshes.push(mesh);
       kick();
     }
-  } else if (move.type === 'flip') {
-    clearGhost();
-    snap(G.previewBoard(game, move), true);
   } else if (move.type === 'rotate') {
     busy = true;
     render();
@@ -700,6 +902,14 @@ $('actions').addEventListener('click', (e) => {
 });
 
 function selectAction(act) {
+  if (act === 'flip') {
+    // 返すは予告なしで、すぐ指す
+    const move = { type: 'flip' };
+    if (!G.isLegal(game, move)) { Sound.bad(); $('notice').textContent = reasonFor(move); return; }
+    resetScenePreview();
+    commit(move);
+    return;
+  }
   mode = act;
   pendingColor = null;
   pendingTier = null;
@@ -710,7 +920,6 @@ function selectAction(act) {
   Sound.select();
   render();
 }
-$('flip-preview').addEventListener('click', () => trySetMove({ type: 'flip' }));
 $('dir-left').addEventListener('click', () => { if (pendingTier != null) trySetMove({ type: 'rotate', tier: pendingTier, dir: -1 }); });
 $('dir-right').addEventListener('click', () => { if (pendingTier != null) trySetMove({ type: 'rotate', tier: pendingTier, dir: 1 }); });
 
@@ -772,12 +981,15 @@ function render() {
   if (!game) return;
   const moverColors = G.PLAYER_COLORS[game.players][game.turn];
 
-  $('turn').textContent = game.over ? '' : `${playerName(game.turn)} の番`;
-  $('turn').style.color = game.over ? '' : COLOR_META[moverColors[0]].hex;
+  $('turn-text').textContent = game.over ? '' : `${playerName(game.turn)} の番`;
+  if (!game.over) {
+    const hex = COLOR_META[moverColors[0]].hex;
+    $('game').style.setProperty('--pc', hex);
+    setPlayerGlow(hex);
+  }
 
   $('sub-drop').hidden = mode !== 'drop';
   $('sub-rotate').hidden = mode !== 'rotate';
-  $('sub-flip').hidden = mode !== 'flip';
   if (mode === 'drop') renderColors();
   if (mode === 'rotate' && pendingTier == null) { $('rotate-hint').textContent = '回す段（かご）をタップ'; $('dirs').hidden = true; }
 
@@ -786,6 +998,7 @@ function render() {
   $('cancel').hidden = !mode;
   $('cancel').disabled = busy;
 
+  $('actions').hidden = game.over; // 結果カードの左右から操作ボタンがのぞかないように
   const moves = G.legalMoves(game);
   const canDropAny = moves.some((m) => m.type === 'drop');
   $('actions').querySelectorAll('[data-act]').forEach((b) => {
@@ -804,25 +1017,36 @@ function render() {
 // ---- 結果 ----
 function finish(before) {
   const r = $('result');
-  if (game.draw) {
-    $('result-head').textContent = '引き分け';
-    $('result-head').style.color = '';
-    Sound.draw();
-  } else {
-    const owner = game.winner;
-    const colors = G.PLAYER_COLORS[game.players][owner];
-    $('result-head').textContent = `${playerName(owner)} の勝ち`;
-    $('result-head').style.color = COLOR_META[colors[0]].hex;
-    Sound.win();
-  }
-  $('result-moves').textContent = `${game.moves} 手`;
-  r.hidden = false;
-  $('turn').textContent = '';
-  const buttons = r.querySelectorAll('button');
-  buttons.forEach((b) => { b.disabled = true; });
-  setTimeout(() => buttons.forEach((b) => { b.disabled = false; }), 400);
-  render();
-  if (game.winLines.length) highlightWin(game.winLines);
+  const isWin = !game.draw && game.winLines.length;
+  $('turn-text').textContent = '';
+  if (isWin) highlightWin(game.winLines); // 先にそろった箱・光の筋・光の粒を出す
+
+  const reveal = () => {
+    if (game.draw) {
+      $('result-head').textContent = '引き分け';
+      $('result-head').style.color = '';
+      $('game').style.setProperty('--pc', 'var(--brass)');
+      setPlayerGlow('#d8c49a');
+      Sound.draw();
+    } else {
+      const owner = game.winner;
+      const colors = G.PLAYER_COLORS[game.players][owner];
+      const hex = COLOR_META[colors[0]].hex;
+      $('result-head').textContent = `${playerName(owner)} の勝ち`;
+      $('result-head').style.color = hex;
+      $('game').style.setProperty('--pc', hex);
+      setPlayerGlow(hex);
+      Sound.win();
+    }
+    $('result-moves').textContent = `${game.moves} 手`;
+    r.hidden = false;
+    const buttons = r.querySelectorAll('button');
+    buttons.forEach((b) => { b.disabled = true; });
+    setTimeout(() => buttons.forEach((b) => { b.disabled = false; }), 400);
+    render();
+  };
+  // 勝ったときは、光の演出を少し見せてから結果カードを出す
+  if (isWin && !reduced.matches) setTimeout(reveal, 700); else reveal();
   void before;
 }
 
@@ -845,6 +1069,7 @@ function enterGame() {
   clearGhost();
   highlightTier(null);
   winPulsing = false;
+  clearWinFx();
   orbit = { ...HOME };
   show('game');
   snap(game.board, false);
@@ -884,6 +1109,7 @@ function toTitle() {
   game = null;
   animToken++;
   winPulsing = false;
+  clearWinFx();
   show('title');
   renderTitle();
 }
@@ -917,4 +1143,4 @@ $('menu-restart').addEventListener('click', () => {
 });
 
 renderTitle();
-window.__dtDebug = { ground, panelGroup, frameGroup, markerGroup, cubesGroup, tierHighlightMesh, scene, kick };
+window.__dtDebug = { ground, panelGroup, frameGroup, markerGroup, cubesGroup, tierHighlightMesh, scene, camera, kick };
