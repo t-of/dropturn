@@ -43,6 +43,10 @@
         <canvas class="cage cage--demo" id="title-cage" width="240" height="200" aria-hidden="true"></canvas>
         <h1 class="title__name"><span>DROP</span><span class="title__name-accent">TURN</span></h1>
         <p class="title__lead">落として回す立体三目並べ</p>
+        <div class="title__rules" id="rules" role="group" aria-label="ルール">
+          <button class="pill" data-rules="official" aria-pressed="true">公式</button>
+          <button class="pill" data-rules="extra" aria-pressed="false">エクストラ</button>
+        </div>
         <div class="title__buttons">
           <button class="btn btn--main" id="resume" hidden>つづきから</button>
           <button class="btn" data-players="2">2 人</button>
@@ -83,12 +87,23 @@
         <!-- 回すはかごの段を直に指でタップして決める（このボタンはない） -->
 
         <div class="actions" id="actions">
-          <button class="act" data-act="flip"><span class="act__icon" aria-hidden="true">⇅</span><span class="act__label">返す</span></button>
+          <button class="act" data-act="flip"><span class="act__icon" aria-hidden="true">⇅</span><span class="act__label" id="flip-label">返す</span></button>
         </div>
 
+        <!-- 公式ルールの「返す」確認 -->
         <div class="decide" id="flip-confirm" hidden>
           <button class="btn btn--quiet" id="cancel">やめる</button>
           <button class="btn btn--main" id="decide">返す</button>
+        </div>
+
+        <!-- エクストラルールの「倒す」の方向えらび -->
+        <div class="tilt-choices" id="tilt-choices" hidden>
+          <button class="btn" data-tilt="front">手前へ</button>
+          <button class="btn" data-tilt="back">奥へ</button>
+          <button class="btn" data-tilt="left">左へ</button>
+          <button class="btn" data-tilt="right">右へ</button>
+          <button class="btn" data-tilt="flip">ひっくり返す</button>
+          <button class="btn btn--quiet" data-tilt="cancel">やめる</button>
         </div>
       </div>
 
@@ -113,6 +128,14 @@
         <li><b>返す</b>: 「返す」→ 確認して、かご全体を上下にひっくり返す。</li>
       </ol>
       <p class="help__note">どれか 1 つで手番を終える。どの面でも同じ色を縦・横・斜めに 3 つ並べたら勝ち。1 手前の局面に戻る手は指せない（かご全体を回しただけの形も同じ局面とみなす）。「↺」で直前の 1 手だけ取り消せる（確認のあと、逆再生で戻る）。</p>
+      <h2>エクストラルール</h2>
+      <ol>
+        <li>軸がなく、3×3×3 = 27 マスすべてに箱が入る。落とす入口は上面の 9 列すべて。</li>
+        <li>勝ちの線は縦・横・柱・面と断面の斜め・立体の対角線を含む全 49 本。真ん中を通る線や立体の対角線でもそろえば勝ち。</li>
+        <li><b>回す</b>: かごの上でスワイプ。横に動かすとそのマスを通る横の段が、指の動いた向きに回る。縦に動かすと、そのマスを通り画面に向いた面に平行な縦の 1 枚が、指の動いた向きに回る（タップで横の段を回す操作も使える）。</li>
+        <li><b>倒す</b>: 「返す」→ 手前・奥・左・右（今の見た目の向き）にかご全体を倒すか、上下ひっくり返すかを選ぶ。</li>
+      </ol>
+      <p class="help__note">タイトルの「公式 / エクストラ」で切り替える。対局中は変わらない。</p>
       <button class="btn btn--main" id="help-close">わかった</button>
     </dialog>
 

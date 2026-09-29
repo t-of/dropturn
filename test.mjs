@@ -4,6 +4,7 @@ import {
   EMPTY, idx, LINES, PLAYER_COLORS, newBoard, drop, canDrop, rotateBoard, flipBoard, gravity,
   boardsEqual, newGame, legalMoves, isLegal, applyMove, judgeBoard, colorOwner,
 } from './game.js';
+import * as E from './game-extra.js';
 
 const isCompact = (board) => {
   for (let k = 0; k < 8; k++) {
@@ -166,4 +167,130 @@ console.log('戻す手の禁止: ok');
 }
 console.log('12 手引き分け: ok');
 
-console.log('すべて合格');
+console.log('すべて合格（公式ルール）');
+
+// ==========================================================================
+// ---- エクストラルール（軸なし・3×3×3 = 27 マス） ----
+// ==========================================================================
+
+// ---- 49 本の線 ----
+assert.equal(E.LINES.length, 49);
+E.LINES.forEach((l) => assert.equal(new Set(l).size, 3));
+{
+  const key = (l) => l.slice().sort((a, b) => a - b).join(',');
+  assert.equal(new Set(E.LINES.map(key)).size, 49, '線が重複している');
+}
+console.log('49 本の線: ok');
+
+// ---- 軸ごとの回転を 4 回で元に戻る（重力で崩れない、全マス埋まった盤で） ----
+{
+  const b = E.newBoard();
+  for (let i = 0; i < E.TOTAL; i++) b[i] = i % 6;
+  for (const axis of ['x', 'y', 'z']) {
+    let x = b;
+    for (let k = 0; k < 4; k++) x = E.rotateWhole(x, axis, 1);
+    assert.ok(E.boardsEqual(x, b), `${axis} 軸を 4 回で元に戻らない`);
+    x = b;
+    for (let k = 0; k < 4; k++) x = E.rotateWhole(x, axis, -1);
+    assert.ok(E.boardsEqual(x, b), `${axis} 軸を逆向きに 4 回で元に戻らない`);
+  }
+}
+console.log('軸ごとの回転×4 = 元に戻る: ok');
+
+// ---- 倒すを同じ向きに 4 回で元に戻る ----
+{
+  const b = E.newBoard();
+  for (let i = 0; i < E.TOTAL; i++) b[i] = i % 6;
+  for (const { axis, dir } of E.EDGE_TILTS) {
+    let x = b;
+    for (let k = 0; k < 4; k++) x = E.rotateWhole(x, axis, dir);
+    assert.ok(E.boardsEqual(x, b), `倒す(${axis},${dir})×4 が元に戻らない`);
+  }
+  // 返す（180°）は 2 回で元に戻る
+  assert.ok(E.boardsEqual(E.flipBoard(E.flipBoard(b)), b), '返す×2 が元に戻らない');
+}
+console.log('倒す×4・返す×2 = 元に戻る: ok');
+
+// ---- 重力・箱の数はいつも変わらない ----
+{
+  const boxCount = (board) => board.filter((v) => v !== E.EMPTY).length;
+  const isCompact = (board) => {
+    for (let x = 0; x < E.N; x++) for (let z = 0; z < E.N; z++) {
+      let gap = false;
+      for (let y = 0; y < E.N; y++) {
+        if (board[E.idx(x, y, z)] === E.EMPTY) gap = true;
+        else if (gap) return false;
+      }
+    }
+    return true;
+  };
+  const randomBoard = (fill) => {
+    let b = E.newBoard();
+    for (let i = 0; i < fill; i++) {
+      const cols = [];
+      for (let x = 0; x < E.N; x++) for (let z = 0; z < E.N; z++) if (E.canDrop(b, x, z)) cols.push([x, z]);
+      if (!cols.length) break;
+      const [x, z] = cols[Math.floor(Math.random() * cols.length)];
+      b = E.drop(b, x, z, Math.floor(Math.random() * 6));
+    }
+    return b;
+  };
+  for (let r = 0; r < 20; r++) {
+    const b = randomBoard(Math.floor(Math.random() * (E.TOTAL + 1)));
+    assert.ok(isCompact(b), 'drop のあと、列が下から詰まっていない');
+    const axis = ['x', 'y', 'z'][Math.floor(Math.random() * 3)];
+    const layer = Math.floor(Math.random() * E.N);
+    const rt = E.gravity(E.rotateSlice(b, axis, layer, Math.random() < 0.5 ? 1 : -1));
+    assert.equal(boxCount(rt), boxCount(b), '回すで箱の数が変わった');
+    assert.ok(isCompact(rt), '回して重力をかけたのに詰まっていない');
+    const { axis: ta, dir: td } = E.EDGE_TILTS[Math.floor(Math.random() * 4)];
+    const tl = E.gravity(E.rotateWhole(b, ta, td));
+    assert.equal(boxCount(tl), boxCount(b), '倒すで箱の数が変わった');
+    assert.ok(isCompact(tl), '倒して重力をかけたのに詰まっていない');
+  }
+}
+console.log('エクストラ 重力・箱の数: ok');
+
+// ---- 真ん中を通る線・立体の対角線でそろって勝つ ----
+{
+  // 真ん中の縦の柱 (1,0,1)-(1,1,1)-(1,2,1)
+  let b = E.newBoard();
+  b[E.idx(1, 0, 1)] = 0; b[E.idx(1, 1, 1)] = 0; b[E.idx(1, 2, 1)] = 0;
+  let r = E.judgeBoard(b, 2, 0);
+  assert.equal(r.winner, 0, '真ん中を通る柱でそろわない');
+
+  // 立体の対角線 (0,0,0)-(1,1,1)-(2,2,2)
+  b = E.newBoard();
+  b[E.idx(0, 0, 0)] = 3; b[E.idx(1, 1, 1)] = 3; b[E.idx(2, 2, 2)] = 3;
+  r = E.judgeBoard(b, 2, 1);
+  assert.equal(r.winner, 1, '立体の対角線でそろわない');
+}
+console.log('エクストラ 真ん中・立体対角線の勝ち: ok');
+
+// ---- 戻す手の禁止 ----
+{
+  const a = E.newBoard();
+  a[E.idx(0, 0, 0)] = 0; a[E.idx(1, 0, 0)] = 1; a[E.idx(2, 0, 0)] = 2;
+  a[E.idx(0, 0, 1)] = 3; a[E.idx(1, 0, 1)] = 4; a[E.idx(2, 0, 1)] = 0;
+  a[E.idx(0, 0, 2)] = 1; a[E.idx(1, 0, 2)] = 2; a[E.idx(2, 0, 2)] = 3;
+  a[E.idx(0, 1, 0)] = 5; a[E.idx(1, 1, 0)] = 0; // 上の段も一部埋めて、層だけの回転が全体回転と同じにならないようにする
+  let g = { ...E.newGame(2, () => 0), board: a };
+  g = E.applyMove(g, { type: 'rotate', axis: 'y', layer: 0, dir: 1 });
+  assert.equal(E.isLegal(g, { type: 'rotate', axis: 'y', layer: 0, dir: -1 }), false, '1 手前へ戻す手が指せてしまう');
+  assert.equal(E.isLegal(g, { type: 'rotate', axis: 'y', layer: 2, dir: 1 }), false, '何も変わらない手（空の層）が指せてしまう');
+}
+console.log('エクストラ 戻す手の禁止: ok');
+
+// ---- 色・手持ちの割り当て（27 マスは人数×色できれいに割れないので、できるだけ均等に） ----
+for (const players of [2, 3, 4]) {
+  const g = E.newGame(players, () => 0);
+  const total = g.hand.reduce((s, h) => s + Object.values(h).reduce((a, b) => a + b, 0), 0);
+  assert.equal(total, E.TOTAL, `合計 27 個にならない（${players} 人）`);
+  g.hand.forEach((h) => {
+    const vals = Object.values(h);
+    assert.ok(Math.max(...vals) - Math.min(...vals) <= 1, '色ごとの数が均等でない');
+  });
+}
+console.log('エクストラ 色・手持ちの割り当て: ok');
+
+console.log('すべて合格（エクストラルール）');

@@ -32,6 +32,7 @@ function setAudioSession(soundOn) {
 
 import * as THREE from './vendor/three.module.min.js';
 import * as G from './game.js';
+import * as GE from './game-extra.js';
 
 const $ = (id) => document.getElementById(id);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
@@ -57,9 +58,24 @@ function loadSettings() {
     v: 1,
     sound: typeof s.sound === 'boolean' ? s.sound : true,
     seenHelp: s.seenHelp === true,
+    rules: s.rules === 'extra' ? 'extra' : 'official',
   };
 }
 let settings = loadSettings();
+// 対局のルール。タイトルの切り替えは settings.rules だけを変え、対局が始まるとき（startGame・resume）に
+// この MODE へ確定させる（対局中は変わらない）。保存データに rules がなければ公式として読む。
+let MODE = settings.rules;
+
+document.querySelectorAll('[data-rules]').forEach((b) => b.addEventListener('click', () => {
+  settings = { ...settings, rules: b.dataset.rules };
+  save('settings', settings);
+  Sound.select();
+  renderRules();
+}));
+function renderRules() {
+  document.querySelectorAll('[data-rules]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.rules === settings.rules)));
+}
+renderRules();
 
 // ---- 効果音（Web Audio で作る。音声ファイルは使わない） ----
 const Sound = {
@@ -184,6 +200,7 @@ const easeInOutBack = (t) => {
 };
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const X_AXIS = new THREE.Vector3(1, 0, 0);
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const sceneCanvas = $('scene');
@@ -252,7 +269,8 @@ const tierFrames = [0, 1, 2].map(() => new THREE.Group());
 frameGroup.add(...tierFrames);
 const cubesGroup = new THREE.Group();
 const markerGroup = new THREE.Group();
-cageGroup.add(frameGroup, panelGroup, cubesGroup, markerGroup);
+const markerGroupE = new THREE.Group(); // エクストラルール（軸なし）の入口 9 か所
+cageGroup.add(frameGroup, panelGroup, cubesGroup, markerGroup, markerGroupE);
 scene.add(cageGroup);
 
 // ---- かごの枠（墨色のフラットな面）と、少し透ける側面 ----
@@ -379,15 +397,36 @@ function buildMarkers() {
   }
 }
 buildMarkers();
+// エクストラルール（軸なし）の入口 9 か所（x, z の組すべて）
+function buildMarkersExtra() {
+  for (let x = 0; x < 3; x++) for (let z = 0; z < 3; z++) {
+    const m = new THREE.Mesh(markerGeo, markerMatOff);
+    m.position.set(yOf(x), FRAME_R + 0.2, yOf(z));
+    m.rotation.x = -Math.PI / 2;
+    m.visible = false;
+    m.userData = { x, z, enabled: false };
+    markerGroupE.add(m);
+  }
+}
+buildMarkersExtra();
+
+// 今のルールの入口の一覧・落とせるかの判定（公式は col、エクストラは x・z の組で区別する）
+const activeMarkerGroup = () => (MODE === 'extra' ? markerGroupE : markerGroup);
+const entryCanDrop = (board, ud) => (MODE === 'extra' ? GE.canDrop(board, ud.x, ud.z) : G.canDrop(board, ud.col));
+const sameEntry = (a, b) => {
+  if (a == null && b == null) return true;
+  if (!a || !b) return false;
+  return MODE === 'extra' ? a.x === b.x && a.z === b.z : a.col === b.col;
+};
 // 表示は箱をドラッグしている間だけ。指に一番近い、落とせる入口だけを明るく光らせる
 // （ほかの落とせる入口は暗いまま、いっぱいの列はそもそも出さない）。
 function updateMarkers() {
   const show = handDrag != null && !!game;
-  for (const m of markerGroup.children) {
-    const enabled = show && G.canDrop(game.board, m.userData.col);
+  for (const m of activeMarkerGroup().children) {
+    const enabled = show && entryCanDrop(game.board, m.userData);
     m.userData.enabled = enabled;
     m.visible = enabled;
-    m.material = enabled && handDrag.hoverCol === m.userData.col ? markerMatOn : markerMatOff;
+    m.material = enabled && sameEntry(handDrag.hoverEntry, m.userData) ? markerMatOn : markerMatOff;
   }
   kick();
 }
@@ -444,9 +483,12 @@ function makeCube(color, ghost) {
   return new THREE.Mesh(cubeGeo, cubeMaterial(color, ghost));
 }
 function cellPos(col, tier) { const [x, z] = offsetOf(col); return [x, yOf(tier), z]; }
+// エクストラルール（軸なし）: x・y・z は 0..2 のどれも同じ「中心からの位置」なので yOf を使い回す
+function extraCellPos(x, y, z) { return [yOf(x), yOf(y), yOf(z)]; }
 
 // boxes[idx(col,tier)] = 今そのマスに表示している Mesh（見た目の状態。ゲームの状態は game.board）
 let boxes = new Array(24).fill(null);
+let boxesE = new Array(27).fill(null); // エクストラルール用（27 マス）
 let ghostMeshes = [];
 function snap(board, ghost = false) {
   for (const m of boxes) if (m) m.removeFromParent();
@@ -460,6 +502,31 @@ function snap(board, ghost = false) {
     boxes[G.idx(col, tier)] = mesh;
   }
   kick();
+}
+function snapExtra(board, ghost = false) {
+  for (const m of boxesE) if (m) m.removeFromParent();
+  boxesE.fill(null);
+  for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) {
+    const v = board[GE.idx(x, y, z)];
+    if (v === GE.EMPTY) continue;
+    const mesh = makeCube(v, ghost);
+    mesh.position.set(...extraCellPos(x, y, z));
+    cubesGroup.add(mesh);
+    boxesE[GE.idx(x, y, z)] = mesh;
+  }
+  kick();
+}
+// 今のルールで盤を描き直す。モードを切り替えたときのために、前のモードの箱も片付ける
+function snapCurrent(board, ghost = false) {
+  if (MODE === 'extra') {
+    for (const m of boxes) if (m) m.removeFromParent();
+    boxes.fill(null);
+    snapExtra(board, ghost);
+  } else {
+    for (const m of boxesE) if (m) m.removeFromParent();
+    boxesE.fill(null);
+    snap(board, ghost);
+  }
 }
 function clearGhost() { for (const m of ghostMeshes) m.removeFromParent(); ghostMeshes = []; kick(); }
 
@@ -486,12 +553,13 @@ function clearWinFx() {
   winFxGroup.clear();
   sparklePoints = null; sparkleBase = []; sparklePhase = [];
 }
-function highlightWin(lines) {
+// lines のマスを光らせる。boxesArr・posOf（マス番号 → ワールド座標）はルールごとに違う盤の形を吸収する
+function highlightWinAny(lines, boxesArr, posOf) {
   clearWinFx();
   winMeshes = [];
   const idxSet = new Set(lines.flat());
   for (const i of idxSet) {
-    const m = boxes[i];
+    const m = boxesArr[i];
     if (!m) continue;
     m.material = m.material.clone();
     m.material.emissive = new THREE.Color(0xf2b632);
@@ -501,17 +569,14 @@ function highlightWin(lines) {
   // 線をつなぐ光の筋（各線は 3 マス = 隣どうし 2 本）
   for (const line of lines) {
     for (let i = 0; i < line.length - 1; i++) {
-      const [c1, t1] = [Math.floor(line[i] / 3), line[i] % 3];
-      const [c2, t2] = [Math.floor(line[i + 1] / 3), line[i + 1] % 3];
-      winFxGroup.add(edgeBetween(cellPos(c1, t1), cellPos(c2, t2), 0.07, winBeamMat));
+      winFxGroup.add(edgeBetween(posOf(line[i]), posOf(line[i + 1]), 0.07, winBeamMat));
     }
   }
   // 舞う光の粒（そろったマスの近くに少しだけ）
   if (!reduced.matches) {
     const positions = [];
     for (const i of idxSet) {
-      const [c, t] = [Math.floor(i / 3), i % 3];
-      const [px, py, pz] = cellPos(c, t);
+      const [px, py, pz] = posOf(i);
       for (let n = 0; n < 2; n++) {
         const bx = px + (Math.random() - 0.5) * 0.7, by = py + (Math.random() - 0.5) * 0.5, bz = pz + (Math.random() - 0.5) * 0.7;
         sparkleBase.push([bx, by, bz]);
@@ -527,6 +592,12 @@ function highlightWin(lines) {
   }
   winPulsing = winMeshes.length > 0;
   kick();
+}
+function highlightWin(lines) {
+  highlightWinAny(lines, boxes, (i) => cellPos(Math.floor(i / 3), i % 3));
+}
+function highlightWinExtra(lines) {
+  highlightWinAny(lines, boxesE, (i) => { const c = GE.coordsOf(i); return extraCellPos(c.x, c.y, c.z); });
 }
 
 // ---- 描くのは動きがあるときだけ（重い処理を避ける） ----
@@ -617,20 +688,19 @@ function projectToScreen(worldPos) {
   const r = sceneCanvas.getBoundingClientRect();
   return { x: r.left + (p.x * 0.5 + 0.5) * r.width, y: r.top + (-p.y * 0.5 + 0.5) * r.height };
 }
-function markerScreenPos(col) {
-  const wp = new THREE.Vector3();
-  markerGroup.children[col].getWorldPosition(wp);
-  return projectToScreen(wp);
-}
+// 今のルールの入口のうち、指に一番近い落とせるものを選ぶ（多少ずれていても選べるように、
+// raycast ではなく「投影した位置との距離」で選ぶ。指で隠れて真下に入口が無いことが多いスマホ向け）。
 function pickEntryNear(x, y) {
   const r = sceneCanvas.getBoundingClientRect();
   const maxDist = Math.min(r.width, r.height) * 0.22; // 甘めの当たり判定
   let best = null, bestD = Infinity;
-  for (let col = 0; col < 8; col++) {
-    if (!G.canDrop(game.board, col)) continue;
-    const p = markerScreenPos(col);
+  for (const m of activeMarkerGroup().children) {
+    if (!entryCanDrop(game.board, m.userData)) continue;
+    const wp = new THREE.Vector3();
+    m.getWorldPosition(wp);
+    const p = projectToScreen(wp);
     const d = Math.hypot(p.x - x, p.y - y);
-    if (d < bestD) { bestD = d; best = col; }
+    if (d < bestD) { bestD = d; best = m.userData; }
   }
   return bestD <= maxDist ? best : null;
 }
@@ -647,12 +717,29 @@ function pickTier(x, y) {
   const local = cageGroup.worldToLocal(hit.point.clone());
   return Math.max(0, Math.min(2, Math.round(local.y + 1)));
 }
+// エクストラルール: タップ・スワイプしたマスの座標（x, y, z）と、そのワールド座標での位置を返す
+function pickCellExtra(x, y) {
+  raycaster.setFromCamera(ndc(x, y), camera);
+  const targets = [...panelGroup.children, ...boxesE.filter(Boolean)];
+  const hit = raycaster.intersectObjects(targets, true)[0];
+  if (!hit) return null;
+  const local = cageGroup.worldToLocal(hit.point.clone());
+  const cell = (v) => Math.max(0, Math.min(2, Math.round(v + 1)));
+  return { x: cell(local.x), y: cell(local.y), z: cell(local.z), point: hit.point.clone() };
+}
 
 // 段は「かごをタップ」で直接決める。動かさずに離すと、離した位置がかごの中心より
 // 右なら右回り・左なら左回りで、その場で回す（決定は挟まない）。動かせば、いつもどおり視点が回る。
 let dragState = null;
 sceneCanvas.addEventListener('pointerdown', (e) => {
   sceneCanvas.setPointerCapture(e.pointerId);
+  if (MODE === 'extra') {
+    let hit = null;
+    if (!busy && game && !game.over && !handDrag && !pendingTilt) hit = pickCellExtra(e.clientX, e.clientY);
+    dragState = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, hit, moved: false };
+    kick();
+    return;
+  }
   let hit = null;
   if (!busy && game && !game.over && !handDrag && !pendingFlip) {
     const tier = pickTier(e.clientX, e.clientY);
@@ -667,18 +754,61 @@ sceneCanvas.addEventListener('pointermove', (e) => {
   dragState.x = e.clientX; dragState.y = e.clientY;
   if (!dragState.moved && Math.hypot(e.clientX - dragState.x0, e.clientY - dragState.y0) > 8) {
     dragState.moved = true;
-    if (dragState.hit) highlightTier(null); // 動いたら視点回転に切り替え、光は消す
+    if (dragState.hit && MODE !== 'extra') highlightTier(null); // 動いたら視点回転に切り替え、光は消す
   }
+  // エクストラルールでは、かごの上で始めたドラッグはスワイプ（回す）として離したときにまとめて判定する。
+  // 視点を回すのは、空いた所で始めたドラッグだけ（公式と同じ）。
+  if (MODE === 'extra' && dragState.hit) return;
   if (!dragState.hit || dragState.moved) {
     orbit.theta -= dx * 0.008;
     orbit.phi = Math.max(PHI_MIN, Math.min(PHI_MAX, orbit.phi - dy * 0.008));
     kick();
   }
 });
+// axisVec まわりに、pointWorld を pivotWorld を通る軸で少しだけ回してみて、その動きが画面上で
+// スワイプ（dxScreen, dyScreen）と同じ向きになる回転の符号（+1/-1）を選ぶ。手前が指の方向へ動く。
+function inferDragDir(axisVec, pivotWorld, pointWorld, dxScreen, dyScreen) {
+  const q = new THREE.Quaternion().setFromAxisAngle(axisVec, 0.08);
+  const rel = pointWorld.clone().sub(pivotWorld).applyQuaternion(q).add(pivotWorld);
+  const p0 = projectToScreen(pointWorld), p1 = projectToScreen(rel);
+  const dot = (p1.x - p0.x) * dxScreen + (p1.y - p0.y) * dyScreen;
+  return dot >= 0 ? 1 : -1;
+}
+// 回す・倒すの dir（game-extra.js の rotate90 の向き）と、Three.js の物理的な回転角の符号は
+// 軸ごとにずれる（y は同じ向き、x・z は逆向き）。animRotateSliceExtra・animTiltExtra と揃える。
+const SLICE_ANGLE_SIGN = { y: 1, x: -1, z: -1 };
+function endDragExtra(ds, e) {
+  if (!ds.hit || busy) { kick(); return; }
+  const totalDx = e.clientX - ds.x0, totalDy = e.clientY - ds.y0;
+  const { x, y, z, point } = ds.hit;
+  const pivot = cageGroup.getWorldPosition(new THREE.Vector3());
+  let axis, layer, physDir;
+  if (Math.hypot(totalDx, totalDy) < 8) {
+    // タップ: 横の段を、タップ位置がかごの中心より右なら右回り・左なら左回りに回す（今までの操作）
+    axis = 'y'; layer = y;
+    const sideDx = e.clientX >= cageCenterScreenX() ? 1 : -1;
+    physDir = inferDragDir(Y_AXIS, pivot, point, sideDx, 0);
+  } else if (Math.abs(totalDx) >= Math.abs(totalDy)) {
+    // 横スワイプ: そのマスを通る横の段を、指の動いた向きに回す
+    axis = 'y'; layer = y;
+    physDir = inferDragDir(Y_AXIS, pivot, point, totalDx, totalDy);
+  } else {
+    // 縦スワイプ: そのマスを通り、画面に向いた面に平行な縦の 1 枚を、指の動いた向きに回す
+    const vx = Math.sin(orbit.theta), vz = Math.cos(orbit.theta);
+    axis = Math.abs(vx) >= Math.abs(vz) ? 'x' : 'z';
+    layer = axis === 'x' ? x : z;
+    physDir = inferDragDir(axis === 'x' ? X_AXIS : Z_AXIS, pivot, point, totalDx, totalDy);
+  }
+  const dir = physDir * SLICE_ANGLE_SIGN[axis];
+  const move = { type: 'rotate', axis, layer, dir };
+  if (GE.isLegal(game, move)) { $('notice').textContent = ''; commit(move); }
+  else { Sound.bad(); $('notice').textContent = BANNED_MOVE_MSG; kick(); }
+}
 function endDrag(e) {
   const ds = dragState;
   dragState = null;
   if (!ds) { kick(); return; }
+  if (MODE === 'extra') { endDragExtra(ds, e); return; }
   if (ds.moved || !ds.hit || busy) { highlightTier(null); kick(); return; }
   const dir = e.clientX >= cageCenterScreenX() ? -1 : 1; // 右をタップ → 手前が右へ動く（上から見て左回り）
   const move = { type: 'rotate', tier: ds.hit.tier, dir };
@@ -901,15 +1031,167 @@ async function animUndo(beforeBoard, afterBoard, move, dur) {
 }
 
 // ==========================================================================
+// ---- エクストラルール（軸なし・3×3×3）のアニメーション ----
+// 段（1 枚）を回すのは animRotateSliceExtra、かご全体を倒す・返すのは cageGroup をまとめて
+// 回すだけでよい（ponytail: 段ごとに柵を割って回す公式の frame 演出はここでは作らない。
+// 見た目は箱だけが実際に回る、ふちの薄いガラス箱はそのまま）。
+// ==========================================================================
+async function animateGravityUnsettleExtra(fromBoard, toBoard, dur) {
+  const lifts = [];
+  for (let x = 0; x < 3; x++) for (let z = 0; z < 3; z++) {
+    const fromYs = [0, 1, 2].filter((y) => fromBoard[GE.idx(x, y, z)] !== GE.EMPTY);
+    const toYs = [0, 1, 2].filter((y) => toBoard[GE.idx(x, y, z)] !== GE.EMPTY);
+    fromYs.forEach((fy, i) => {
+      const ty = toYs[i];
+      const mesh = boxesE[GE.idx(x, ty, z)];
+      if (mesh && ty !== fy) lifts.push({ mesh, fromY: yOf(ty), toY: yOf(fy) });
+    });
+  }
+  if (!lifts.length) return;
+  await tween(dur, (p) => lifts.forEach(({ mesh, fromY, toY }) => { mesh.position.y = fromY + (toY - fromY) * easeInOutCubic(p); }));
+  snapExtra(fromBoard, false);
+}
+async function animateGravitySettleExtra(fromBoard, toBoard) {
+  const moves = [];
+  for (let x = 0; x < 3; x++) for (let z = 0; z < 3; z++) {
+    const fromYs = [0, 1, 2].filter((y) => fromBoard[GE.idx(x, y, z)] !== GE.EMPTY);
+    const toYs = [0, 1, 2].filter((y) => toBoard[GE.idx(x, y, z)] !== GE.EMPTY);
+    fromYs.forEach((fy, i) => {
+      const ty = toYs[i];
+      const mesh = boxesE[GE.idx(x, fy, z)];
+      if (mesh && ty !== fy) moves.push({ mesh, fromY: yOf(fy), toY: yOf(ty) });
+    });
+  }
+  if (!moves.length) return;
+  await Promise.all(moves.map(({ mesh, fromY, toY }) => dropMesh(mesh, fromY, toY)));
+}
+
+// axis に垂直な、layer 番目の 1 枚だけを実際に 90° 回す
+async function animRotateSliceExtra(beforeBoard, move, dur, ghost) {
+  const { axis, layer, dir } = move;
+  const pivotPos = axis === 'y' ? [0, yOf(layer), 0] : axis === 'x' ? [yOf(layer), 0, 0] : [0, 0, yOf(layer)];
+  const pivot = new THREE.Group();
+  pivot.position.set(...pivotPos);
+  cageGroup.add(pivot);
+  const axisVec = axis === 'y' ? Y_AXIS : axis === 'x' ? X_AXIS : Z_AXIS;
+  const angle = SLICE_ANGLE_SIGN[axis] * dir * (Math.PI / 2);
+  for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) {
+    const onLayer = axis === 'y' ? y === layer : axis === 'x' ? x === layer : z === layer;
+    if (!onLayer) continue;
+    const i = GE.idx(x, y, z);
+    const v = beforeBoard[i];
+    if (v === GE.EMPTY) continue;
+    if (boxesE[i]) { boxesE[i].removeFromParent(); boxesE[i] = null; }
+    const [wx, wy, wz] = extraCellPos(x, y, z);
+    const mesh = makeCube(v, false);
+    mesh.position.set(wx - pivotPos[0], wy - pivotPos[1], wz - pivotPos[2]);
+    pivot.add(mesh);
+  }
+  if (axis === 'y') highlightTier(layer); // 横の段のときだけ、公式と同じ光る帯を出す
+  const rotEase = reduced.matches ? easeOutCubic : easeOutBack;
+  await tween(dur, (p) => { pivot.quaternion.setFromAxisAngle(axisVec, angle * rotEase(p)); });
+  pivot.removeFromParent();
+  const rotatedNoGravity = GE.rotateSlice(beforeBoard, axis, layer, dir);
+  snapExtra(rotatedNoGravity, ghost);
+  const afterGravity = GE.gravity(rotatedNoGravity);
+  await animateGravitySettleExtra(rotatedNoGravity, afterGravity);
+}
+
+// かご全体を倒す（90°。手前・奥・左・右のどれか）
+async function animTiltExtra(beforeBoard, move, dur) {
+  const { axis, dir } = move;
+  clearGhost();
+  snapExtra(beforeBoard, false);
+  const axisVec = axis === 'x' ? X_AXIS : Z_AXIS;
+  const angle = SLICE_ANGLE_SIGN[axis] * dir * (Math.PI / 2);
+  const rotEase = reduced.matches ? easeOutCubic : easeOutBack;
+  await tween(dur, (p) => { cageGroup.quaternion.setFromAxisAngle(axisVec, angle * rotEase(p)); });
+  cageGroup.quaternion.identity();
+  const noGravity = GE.rotateWhole(beforeBoard, axis, dir);
+  snapExtra(noGravity, false);
+  const afterGravity = GE.gravity(noGravity);
+  await animateGravitySettleExtra(noGravity, afterGravity);
+}
+
+// ひっくり返す（180°。公式の「返す」と同じ、x 軸まわりの反転）
+async function animFlipExtra(beforeBoard, afterBoard, dur) {
+  clearGhost();
+  snapExtra(beforeBoard, false);
+  const flipEase = reduced.matches ? easeInOutCubic : easeInOutBack;
+  await tween(dur * FLIP_SLOW, (p) => {
+    cageGroup.quaternion.setFromAxisAngle(X_AXIS, Math.PI * flipEase(p));
+    if (!reduced.matches) updateFlipStreak(p);
+  });
+  hideFlipStreak();
+  cageGroup.quaternion.identity();
+  const noGravity = GE.flipBoard(beforeBoard);
+  snapExtra(noGravity, false);
+  await animateGravitySettleExtra(noGravity, afterBoard);
+  snapExtra(afterBoard, false);
+}
+
+async function animPlayDropExtra(beforeBoard, move) {
+  clearGhost();
+  snapExtra(beforeBoard, false);
+  const { x, z, color } = move;
+  const y = [0, 1, 2].find((yy) => beforeBoard[GE.idx(x, yy, z)] === GE.EMPTY);
+  if (y == null) return;
+  const mesh = makeCube(color, false);
+  const [wx, , wz] = extraCellPos(x, 0, z);
+  const fromY = FRAME_R + 1.1, toY = yOf(y);
+  mesh.position.set(wx, fromY, wz);
+  cubesGroup.add(mesh);
+  boxesE[GE.idx(x, y, z)] = mesh;
+  await dropMesh(mesh, fromY, toY, () => {
+    if (reduced.matches) return;
+    spawnLandingRing(wx, toY, wz);
+    tween(160, (p) => {
+      const s = 1 - Math.sin(p * Math.PI) * 0.14;
+      mesh.scale.set(1 + (1 - s) * 0.35, s, 1 + (1 - s) * 0.35);
+    }).then(() => mesh.scale.set(1, 1, 1));
+  });
+}
+
+async function animUndoExtra(beforeBoard, afterBoard, move, dur) {
+  clearGhost();
+  snapExtra(afterBoard, false);
+  if (move.type === 'drop') {
+    const y = [0, 1, 2].find((yy) => beforeBoard[GE.idx(move.x, yy, move.z)] === GE.EMPTY);
+    const mesh = boxesE[GE.idx(move.x, y, move.z)];
+    if (!mesh) return;
+    const fromY = mesh.position.y, toY = FRAME_R + 1.1;
+    await tween(dur, (p) => { mesh.position.y = fromY + (toY - fromY) * easeInOutCubic(p); });
+  } else if (move.type === 'rotate') {
+    const rotated = GE.rotateSlice(beforeBoard, move.axis, move.layer, move.dir);
+    await animateGravityUnsettleExtra(rotated, afterBoard, dur);
+    await animRotateSliceExtra(rotated, { ...move, dir: -move.dir }, dur, false);
+  } else if (move.type === 'tilt') {
+    const rotated = GE.rotateWhole(beforeBoard, move.axis, move.dir);
+    await animateGravityUnsettleExtra(rotated, afterBoard, dur);
+    await animTiltExtra(rotated, { ...move, dir: -move.dir }, dur);
+  } else {
+    const flipped = GE.flipBoard(beforeBoard);
+    await animateGravityUnsettleExtra(flipped, afterBoard, dur);
+    snapExtra(beforeBoard, false);
+    cageGroup.quaternion.setFromAxisAngle(X_AXIS, Math.PI);
+    const flipEase = reduced.matches ? easeInOutCubic : easeInOutBack;
+    await tween(dur * FLIP_SLOW, (p) => { cageGroup.quaternion.setFromAxisAngle(X_AXIS, Math.PI * (1 - flipEase(p))); });
+    cageGroup.quaternion.identity();
+  }
+  snapExtra(beforeBoard, false);
+}
+
+// ==========================================================================
 // ---- 対局 ----
 // ==========================================================================
 let game = null;
-let pendingFlip = false;  // 「返す」の確認中か
+let pendingFlip = false;  // 「返す」の確認中か（公式）
+let pendingTilt = false; // 「倒す」の方向えらび中か（エクストラ）
 let busy = false;
 let animToken = 0;        // 進行中のアニメを無効にするための合いことば
 let lastSnapshot = null;  // 「戻る」用に、直前の commit の前の game を 1 手分だけ持っておく
 let lastMove = null;      // その手（逆再生に使う）
-let handDrag = null;      // 手持ちの箱をドラッグ中の状態 { color, pointerId, el, ghost, hoverCol }
+let handDrag = null;      // 手持ちの箱をドラッグ中の状態 { color, pointerId, el, ghost, hoverEntry }
 
 function loadGame() {
   const g = load('game', null);
@@ -924,7 +1206,14 @@ function resetScenePreview() {
   animToken++;
   clearGhost();
   highlightTier(null);
-  if (game) snap(game.board, false);
+  if (game) snapCurrent(game.board, false);
+}
+// 今のルールの見た目に合わせる（かごの枠・入口・「返す」ボタンの文字）
+function applyModeVisuals() {
+  frameGroup.visible = MODE !== 'extra';
+  markerGroup.visible = MODE !== 'extra';
+  markerGroupE.visible = MODE === 'extra';
+  $('flip-label').textContent = MODE === 'extra' ? '倒す' : '返す';
 }
 
 // ---- 手持ちの箱（ドラッグ元）。落とすは「箱を押さえてかごの上へドラッグし、離す」だけ ----
@@ -950,11 +1239,12 @@ function startHandDrag(e, el, color) {
   if (busy || !game || game.over || handDrag) return;
   e.preventDefault();
   if (pendingFlip) { pendingFlip = false; render(); }
+  if (pendingTilt) { pendingTilt = false; render(); }
   const ghost = document.createElement('div');
   ghost.className = 'colorbtn colorbtn--ghost';
   ghost.style.setProperty('--c', COLOR_META[color].hex);
   document.body.append(ghost);
-  handDrag = { color, pointerId: e.pointerId, el, ghost, hoverCol: null };
+  handDrag = { color, pointerId: e.pointerId, el, ghost, hoverEntry: null };
   positionGhost(e.clientX, e.clientY);
   Sound.select();
   updateMarkers();
@@ -970,20 +1260,28 @@ function positionGhost(x, y) {
 function onHandDragMove(e) {
   if (!handDrag || e.pointerId !== handDrag.pointerId) return;
   positionGhost(e.clientX, e.clientY);
-  const col = pickEntryNear(e.clientX, e.clientY);
-  if (col !== handDrag.hoverCol) {
-    handDrag.hoverCol = col;
+  const entry = pickEntryNear(e.clientX, e.clientY);
+  if (!sameEntry(entry, handDrag.hoverEntry)) {
+    handDrag.hoverEntry = entry;
     updateMarkers();
-    updateDropGhostPreview(col, handDrag.color);
+    updateDropGhostPreview(entry, handDrag.color);
   }
 }
-function updateDropGhostPreview(col, color) {
+function firstEmptyTier(board, entry) {
+  return MODE === 'extra'
+    ? [0, 1, 2].find((y) => board[GE.idx(entry.x, y, entry.z)] === GE.EMPTY)
+    : [0, 1, 2].find((t) => board[G.idx(entry.col, t)] === G.EMPTY);
+}
+function posForEntry(entry, tier) {
+  return MODE === 'extra' ? extraCellPos(entry.x, tier, entry.z) : cellPos(entry.col, tier);
+}
+function updateDropGhostPreview(entry, color) {
   clearGhost();
-  if (col == null) { kick(); return; }
-  const tier = [0, 1, 2].find((t) => game.board[G.idx(col, t)] === G.EMPTY);
+  if (entry == null) { kick(); return; }
+  const tier = firstEmptyTier(game.board, entry);
   if (tier == null) return;
   const mesh = makeCube(color, true);
-  mesh.position.set(...cellPos(col, tier));
+  mesh.position.set(...posForEntry(entry, tier));
   cubesGroup.add(mesh);
   ghostMeshes.push(mesh);
   kick();
@@ -995,14 +1293,17 @@ function endHandDragListeners() {
 }
 function onHandDragEnd(e) {
   if (!handDrag || e.pointerId !== handDrag.pointerId) return;
-  const { color, hoverCol, ghost, el } = handDrag;
+  const { color, hoverEntry, ghost, el } = handDrag;
   endHandDragListeners();
   clearGhost();
   handDrag = null;
   updateMarkers();
-  if (hoverCol != null) {
-    const move = { type: 'drop', color, col: hoverCol };
-    if (G.isLegal(game, move)) { ghost.remove(); $('notice').textContent = ''; commit(move); return; }
+  if (hoverEntry != null) {
+    const move = MODE === 'extra'
+      ? { type: 'drop', color, x: hoverEntry.x, z: hoverEntry.z }
+      : { type: 'drop', color, col: hoverEntry.col };
+    const legal = MODE === 'extra' ? GE.isLegal(game, move) : G.isLegal(game, move);
+    if (legal) { ghost.remove(); $('notice').textContent = ''; commit(move); return; }
   }
   returnGhostHome(ghost, el);
   render();
@@ -1019,10 +1320,17 @@ function returnGhostHome(ghost, el) {
   setTimeout(() => ghost.remove(), 260); // 保険（transitionend が来ない環境向け）
 }
 
-// ---- 返す（確認してから） ----
+// ---- 返す・倒す（確認・方向えらびをしてから） ----
 $('actions').addEventListener('click', (e) => {
   const b = e.target.closest('[data-act="flip"]');
-  if (!b || busy || pendingFlip) return;
+  if (!b || busy || pendingFlip || pendingTilt) return;
+  if (MODE === 'extra') {
+    pendingTilt = true;
+    $('notice').textContent = '';
+    Sound.select();
+    render();
+    return;
+  }
   const move = { type: 'flip' };
   if (!G.isLegal(game, move)) { Sound.bad(); $('notice').textContent = BANNED_MOVE_MSG; return; }
   pendingFlip = true;
@@ -1041,6 +1349,30 @@ $('cancel').addEventListener('click', () => {
   render();
 });
 
+// エクストラルール: 「倒す」の方向（手前・奥・左・右は今の視点から見た向き）
+function faceTiltFor(vx, vz) {
+  return Math.abs(vx) >= Math.abs(vz) ? { axis: 'z', dir: vx > 0 ? 1 : -1 } : { axis: 'x', dir: vz > 0 ? -1 : 1 };
+}
+function resolveTiltDirection(choice) {
+  const front = faceTiltFor(Math.sin(orbit.theta), Math.cos(orbit.theta));
+  if (choice === 'front') return front;
+  if (choice === 'back') return { axis: front.axis, dir: -front.dir };
+  const right = faceTiltFor(Math.cos(orbit.theta), -Math.sin(orbit.theta));
+  if (choice === 'right') return right;
+  return { axis: right.axis, dir: -right.dir }; // 'left'
+}
+$('tilt-choices').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-tilt]');
+  if (!b) return;
+  if (b.dataset.tilt === 'cancel') { pendingTilt = false; $('notice').textContent = ''; render(); return; }
+  if (busy) return;
+  const move = b.dataset.tilt === 'flip' ? { type: 'flip' } : { type: 'tilt', ...resolveTiltDirection(b.dataset.tilt) };
+  pendingTilt = false;
+  if (!GE.isLegal(game, move)) { Sound.bad(); $('notice').textContent = BANNED_MOVE_MSG; render(); return; }
+  $('notice').textContent = '';
+  commit(move);
+});
+
 // ---- 戻る（直前の 1 手だけ取り消す） ----
 $('undo').addEventListener('click', async () => {
   if (busy || !lastSnapshot || !game || game.over) return;
@@ -1048,11 +1380,14 @@ $('undo').addEventListener('click', async () => {
   const before = lastSnapshot, after = game;
   lastSnapshot = null;
   pendingFlip = false;
+  pendingTilt = false;
   resetScenePreview();
   busy = true;
   render();
   Sound.select();
-  await animUndo(before.board, after.board, lastMove, reduced.matches ? 70 : 320);
+  const dur = reduced.matches ? 70 : 320;
+  if (MODE === 'extra') await animUndoExtra(before.board, after.board, lastMove, dur);
+  else await animUndo(before.board, after.board, lastMove, dur);
   game = before;
   highlightTier(null);
   persist();
@@ -1061,6 +1396,7 @@ $('undo').addEventListener('click', async () => {
 });
 
 async function commit(move) {
+  if (MODE === 'extra') return commitExtra(move);
   const before = game;
   lastSnapshot = structuredClone(before); // 「戻る」用。1 手分だけでよい
   lastMove = move;
@@ -1082,6 +1418,29 @@ async function commit(move) {
   if (game.over) finish(before); else render();
 }
 
+async function commitExtra(move) {
+  const before = game;
+  lastSnapshot = structuredClone(before);
+  lastMove = move;
+  busy = true;
+  render();
+  const afterState = GE.applyMove(before, move);
+  const dur = reduced.matches ? 70 : 320;
+  animToken++;
+  clearGhost();
+  if (move.type === 'drop') { Sound.land(); await animPlayDropExtra(before.board, move); }
+  else if (move.type === 'rotate') { Sound.rotate(); await animRotateSliceExtra(before.board, move, dur, false); }
+  else if (move.type === 'tilt') { Sound.rotate(); await animTiltExtra(before.board, move, dur); }
+  else { Sound.flip(); await animFlipExtra(before.board, afterState.board, dur); }
+  snapExtra(afterState.board, false);
+  game = afterState;
+  pendingTilt = false;
+  highlightTier(null);
+  persist();
+  busy = false;
+  if (game.over) finish(before); else render();
+}
+
 // ---- 画面の描画（文字・ボタン。かごの中身はここでは書き換えない） ----
 function render() {
   if (!game) return;
@@ -1097,15 +1456,16 @@ function render() {
   renderHand();
 
   $('flip-confirm').hidden = !pendingFlip;
+  $('tilt-choices').hidden = !pendingTilt;
 
   $('actions').hidden = game.over; // 結果カードの左右から操作ボタンがのぞかないように
-  $('actions').querySelectorAll('[data-act]').forEach((b) => { b.disabled = busy || pendingFlip; });
+  $('actions').querySelectorAll('[data-act]').forEach((b) => { b.disabled = busy || pendingFlip || pendingTilt; });
 
   $('undo').disabled = busy || !lastSnapshot || game.over;
 
   if (game.afterEmpty != null && !game.over) {
     $('notice').textContent = `あと ${game.afterEmpty} 手で引き分け`;
-  } else if (!pendingFlip) {
+  } else if (!pendingFlip && !pendingTilt) {
     $('notice').textContent = '';
   }
 
@@ -1117,7 +1477,7 @@ function finish(before) {
   const r = $('result');
   const isWin = !game.draw && game.winLines.length;
   $('turn-text').textContent = '';
-  if (isWin) highlightWin(game.winLines); // 先にそろった箱・光の筋・光の粒を出す
+  if (isWin) { if (MODE === 'extra') highlightWinExtra(game.winLines); else highlightWin(game.winLines); } // 先にそろった箱・光の筋・光の粒を出す
 
   const reveal = () => {
     if (game.draw) {
@@ -1170,14 +1530,17 @@ function enterGame() {
   clearWinFx();
   orbit = { ...HOME };
   show('game');
-  snap(game.board, false);
+  applyModeVisuals();
+  snapCurrent(game.board, false);
   fitView();
   render();
 }
 
 function startGame(players) {
-  game = G.newGame(players);
+  MODE = settings.rules; // タイトルで選んだルールに決める（対局中は変わらない）
+  game = MODE === 'extra' ? GE.newGame(players) : G.newGame(players);
   pendingFlip = false;
+  pendingTilt = false;
   lastSnapshot = null;
   busy = false;
   $('result').hidden = true;
@@ -1198,8 +1561,10 @@ document.querySelectorAll('[data-players]').forEach((b) => b.addEventListener('c
 $('resume').addEventListener('click', () => {
   const g = loadGame();
   if (!g) return;
+  MODE = g.rules === 'extra' ? 'extra' : 'official'; // 保存された対局のルールのまま続ける
   game = g;
   pendingFlip = false;
+  pendingTilt = false;
   lastSnapshot = null;
   busy = false;
   enterGame();

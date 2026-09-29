@@ -135,6 +135,8 @@ button { font: inherit; color: inherit; }
 }
 .title__name-accent { color: var(--vermilion); }
 .title__lead { margin: 6px 0 16px; color: var(--muted); font-size: 14px; letter-spacing: 0.02em; }
+.title__rules { display: flex; justify-content: center; gap: 8px; margin-bottom: 14px; }
+.title__rules .pill[aria-pressed="true"] { background: var(--ink); color: var(--cream); }
 .title__buttons { display: grid; gap: 10px; width: min(280px, 100%); }
 .title__foot { display: grid; gap: 12px; padding-top: 12px; }
 .title__kit { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
@@ -213,6 +215,10 @@ button { font: inherit; color: inherit; }
   border-color: var(--ink);
   color: var(--ink);
 }
+
+/* エクストラルールの「倒す」方向えらび */
+.tilt-choices { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: min(360px, 100%); margin: 0 auto; }
+.tilt-choices .btn { min-width: 96px; flex: 1 1 auto; }
 
 /* ---- 結果（盤の上に、下寄せのカードで重ねる） ---- */
 @keyframes result-in { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }

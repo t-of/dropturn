@@ -89,7 +89,7 @@ export const boardsEqual = (a, b) => a.length === b.length && a.every((v, i) => 
 export function newGame(players, rng = Math.random) {
   const first = Math.floor(rng() * players);
   return {
-    v: 1, players, first, turn: first,
+    v: 1, rules: 'official', players, first, turn: first,
     board: newBoard(),
     hand: initHand(players),
     prev: null,          // 1 手前（直前の手より前）の盤。戻す手の判定に使う
