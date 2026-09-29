@@ -95,42 +95,9 @@ button { font: inherit; color: inherit; }
 .top { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 8px; }
 .turn { margin: 0; text-align: center; font-size: 16px; font-weight: 700; }
 
-.cage-wrap { position: relative; display: flex; justify-content: center; }
-#cage { width: min(220px, 55vw); height: auto; aspect-ratio: 220 / 180; }
-.cage__spin { position: absolute; right: calc(50% - min(110px, 27.5vw) - 4px); bottom: 0; }
-
-.band-wrap { container-type: inline-size; }
-.band__heads, .band__drops {
-  display: grid; grid-template-columns: repeat(9, 1fr); gap: 1px;
-}
-.band__head { text-align: center; font-size: 11px; color: var(--muted); line-height: 1.6; }
-.band__drop {
-  min-height: 22px; border: 0; background: transparent; color: var(--brass);
-  font-size: 13px; padding: 0; cursor: pointer;
-}
-.band__drop:disabled { color: var(--muted); opacity: 0.35; cursor: default; }
-.band {
-  display: grid; grid-template-columns: repeat(9, 1fr); grid-template-rows: repeat(3, 1fr);
-  gap: 2px; aspect-ratio: 9 / 3;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 3px;
-}
-/* 角の列（面の境）に縦線を入れる: 0,2,4,6,8 番目が角 */
-.band__cell:nth-child(9n + 1), .band__cell:nth-child(9n + 3), .band__cell:nth-child(9n + 5),
-.band__cell:nth-child(9n + 7), .band__cell:nth-child(9n + 9) { box-shadow: inset 1px 0 0 var(--line); }
-.band__cell {
-  position: relative;
-  border: 0; border-radius: 4px; background: rgba(255, 255, 255, 0.03);
-  color: var(--c, transparent);
-  font-size: clamp(14px, 4.2cqi, 20px);
-  cursor: pointer;
-  touch-action: none;
-  padding: 0;
-}
-.band__cell.filled { background: var(--c); color: rgba(0, 0, 0, 0.55); }
-.band__cell.ghost { opacity: 0.55; outline: 1px dashed var(--brass); outline-offset: -2px; }
-.band__cell.win { animation: glow 1s ease-in-out infinite; }
-.band__cell:disabled { cursor: default; }
-@keyframes glow { 50% { filter: brightness(1.5); } }
+.scene-wrap { position: relative; flex: 1; min-height: 200px; border-radius: 14px; overflow: hidden; background: var(--bg); }
+.scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; user-select: none; }
+.scene__reset { position: absolute; right: 8px; bottom: 8px; opacity: 0.85; }
 
 .notice { min-height: 1.4em; margin: 0; text-align: center; font-size: 13px; color: var(--muted); }
 
@@ -187,6 +154,3 @@ button { font: inherit; color: inherit; }
 .help .btn { width: 100%; margin-top: 16px; }
 .menu__buttons { display: grid; gap: 8px; margin-top: 8px; }
 
-@media (prefers-reduced-motion: reduce) {
-  .band__cell.win { animation: none; filter: brightness(1.3); }
-}
