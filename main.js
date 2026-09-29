@@ -680,7 +680,7 @@ function endDrag(e) {
   dragState = null;
   if (!ds) { kick(); return; }
   if (ds.moved || !ds.hit || busy) { highlightTier(null); kick(); return; }
-  const dir = e.clientX >= cageCenterScreenX() ? 1 : -1;
+  const dir = e.clientX >= cageCenterScreenX() ? -1 : 1; // 右をタップ → 手前が右へ動く（上から見て左回り）
   const move = { type: 'rotate', tier: ds.hit.tier, dir };
   highlightTier(null);
   if (G.isLegal(game, move)) { $('notice').textContent = ''; commit(move); }
