@@ -478,7 +478,7 @@ function roundedBoxGeometry(size, radius, segments) {
   geo.computeVertexNormals();
   return geo;
 }
-const cubeGeo = roundedBoxGeometry(0.82, 0.12, 4);
+const cubeGeo = roundedBoxGeometry(0.98, 0.1, 4);
 function makeCube(color, ghost) {
   return new THREE.Mesh(cubeGeo, cubeMaterial(color, ghost));
 }
@@ -736,7 +736,7 @@ function spawnLandingRing(x, y, z) {
   const geo = new THREE.RingGeometry(0.26, 0.38, 24);
   const mat = new THREE.MeshBasicMaterial({ color: 0xffe6a8, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
   const ring = new THREE.Mesh(geo, mat);
-  ring.position.set(x, y - 0.39, z);
+  ring.position.set(x, y - 0.48, z);
   ring.rotation.x = -Math.PI / 2;
   cubesGroup.add(ring);
   tween(320, (p) => {
@@ -939,7 +939,6 @@ function startHandDrag(e, el, color) {
   if (busy || !game || game.over || handDrag) return;
   e.preventDefault();
   if (pendingFlip) { pendingFlip = false; render(); }
-  el.setPointerCapture(e.pointerId);
   const ghost = document.createElement('div');
   ghost.className = 'colorbtn colorbtn--ghost';
   ghost.style.setProperty('--c', COLOR_META[color].hex);
@@ -949,9 +948,10 @@ function startHandDrag(e, el, color) {
   positionGhost(e.clientX, e.clientY);
   Sound.select();
   updateMarkers();
-  el.addEventListener('pointermove', onHandDragMove);
-  el.addEventListener('pointerup', onHandDragEnd);
-  el.addEventListener('pointercancel', onHandDragEnd);
+  // 手持ちの欄は render のたびに作り直されるので、ボタンではなく window で指を追う（ボタンが消えても離したのを拾える）
+  addEventListener('pointermove', onHandDragMove);
+  addEventListener('pointerup', onHandDragEnd);
+  addEventListener('pointercancel', onHandDragEnd);
 }
 function positionGhost(x, y) {
   handDrag.ghost.style.left = `${x}px`;
@@ -978,15 +978,15 @@ function updateDropGhostPreview(col, color) {
   ghostMeshes.push(mesh);
   kick();
 }
-function endHandDragListeners(el) {
-  el.removeEventListener('pointermove', onHandDragMove);
-  el.removeEventListener('pointerup', onHandDragEnd);
-  el.removeEventListener('pointercancel', onHandDragEnd);
+function endHandDragListeners() {
+  removeEventListener('pointermove', onHandDragMove);
+  removeEventListener('pointerup', onHandDragEnd);
+  removeEventListener('pointercancel', onHandDragEnd);
 }
 function onHandDragEnd(e) {
   if (!handDrag || e.pointerId !== handDrag.pointerId) return;
   const { color, hoverCol, ghost, el } = handDrag;
-  endHandDragListeners(el);
+  endHandDragListeners();
   clearGhost();
   handDrag = null;
   updateMarkers();
@@ -999,7 +999,7 @@ function onHandDragEnd(e) {
 }
 // 入口から外れた所で離したら、指を離した所から手持ちの元の位置へふわっと戻す
 function returnGhostHome(ghost, el) {
-  if (reduced.matches) { ghost.remove(); return; }
+  if (reduced.matches || !el.isConnected) { ghost.remove(); return; }
   const r = el.getBoundingClientRect();
   ghost.style.transition = 'left 0.22s cubic-bezier(.2,.8,.2,1), top 0.22s cubic-bezier(.2,.8,.2,1), transform 0.22s';
   ghost.style.left = `${r.left + r.width / 2}px`;
