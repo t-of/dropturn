@@ -59,35 +59,32 @@ button { font: inherit; color: inherit; }
   min-height: 48px;
   padding: 0 16px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: linear-gradient(180deg, var(--surface-2), var(--surface));
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 6px 14px -8px rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  background: var(--surface);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
 }
 .btn--main {
-  border-color: transparent;
-  background: linear-gradient(180deg, var(--brass-bright), var(--brass));
+  border-color: var(--brass);
+  background: var(--brass);
   color: #221a0a;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 8px 18px -8px rgba(216, 196, 154, 0.55);
 }
-.btn--quiet { background: transparent; box-shadow: none; }
+.btn--quiet { background: transparent; }
 .btn:disabled { opacity: 0.4; cursor: default; transform: none !important; }
 .pill {
   min-height: 40px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: 999px;
+  background: var(--surface);
+  border-radius: 4px;
   padding: 6px 14px;
   font-size: 13px;
   cursor: pointer;
 }
 .icon-btn {
   width: 44px; height: 44px;
-  border: 1px solid var(--line); border-radius: 12px;
-  background: linear-gradient(180deg, var(--surface-2), var(--surface));
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: var(--surface);
   font-size: 20px; line-height: 1; cursor: pointer;
 }
 .credit { text-align: center; font-size: 12px; color: var(--muted); margin: 0; }
@@ -102,7 +99,8 @@ button { font: inherit; color: inherit; }
   flex: 1; min-height: 0; overflow-y: auto;
   display: flex; flex-direction: column;
   background:
-    radial-gradient(ellipse 640px 460px at 50% 6%, color-mix(in srgb, var(--brass) 14%, transparent), transparent 70%),
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--brass) 7%, transparent) 0 1px, transparent 1px 56px),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--brass) 7%, transparent) 0 1px, transparent 1px 56px),
     var(--bg);
 }
 .title__main {
@@ -111,18 +109,13 @@ button { font: inherit; color: inherit; }
 }
 .cage--demo {
   width: min(220px, 60vw); height: auto; aspect-ratio: 240 / 200; margin-bottom: 4px;
-  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.45));
 }
 .title__name {
   margin: 4px 0 0; font-size: 40px; letter-spacing: 0.05em; font-weight: 800; line-height: 1;
   font-family: var(--font-display);
   color: var(--brass);
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3), 0 0 26px color-mix(in srgb, var(--brass) 35%, transparent);
 }
-.title__name-accent {
-  background: linear-gradient(180deg, var(--brass-bright), var(--brass) 60%, #a68c58);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
+.title__name-accent { color: var(--brass-bright); }
 .title__lead { margin: 6px 0 16px; color: var(--muted); font-size: 14px; letter-spacing: 0.02em; }
 .title__buttons { display: grid; gap: 10px; width: min(280px, 100%); }
 .title__foot { display: grid; gap: 12px; padding-top: 12px; }
@@ -142,18 +135,18 @@ button { font: inherit; color: inherit; }
 }
 .turn { margin: 0; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 15px; font-weight: 700; font-family: var(--font-display); letter-spacing: 0.02em; }
 .turn__dot {
-  width: 10px; height: 10px; border-radius: 50%;
+  width: 10px; height: 10px;
   background: var(--pc);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pc) 22%, transparent), 0 0 10px color-mix(in srgb, var(--pc) 70%, transparent);
-  transition: background 0.3s, box-shadow 0.3s;
+  transform: rotate(45deg);
+  transition: background 0.3s;
 }
 .turn:has(#turn-text:empty) .turn__dot { display: none; }
 
 .scene-wrap {
-  position: relative; flex: 1; min-height: 200px; border-radius: 14px; overflow: hidden;
-  background: radial-gradient(ellipse 120% 90% at 50% 28%, #1c2540 0%, #101527 62%, #0a0d18 100%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pc) 26%, var(--line)), inset 0 30px 60px -40px rgba(0, 0, 0, 0.7);
-  transition: box-shadow 0.3s;
+  position: relative; flex: 1; min-height: 200px; border-radius: 4px; overflow: hidden;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--pc) 26%, var(--line));
+  transition: border-color 0.3s;
 }
 .scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; user-select: none; }
 .scene__reset { position: absolute; right: 8px; bottom: 8px; opacity: 0.85; }
@@ -165,45 +158,41 @@ button { font: inherit; color: inherit; }
 .controls { display: grid; gap: 8px; }
 .actions { display: grid; grid-template-columns: 1fr; gap: 8px; width: min(200px, 100%); margin: 0 auto; }
 .act {
-  min-height: 56px; border: 1px solid var(--line); border-radius: 12px;
-  background: linear-gradient(180deg, var(--surface-2), var(--surface));
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  min-height: 56px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--surface);
   font-weight: 700; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
 }
 .act__icon { font-size: 18px; line-height: 1; }
 .act__label { font-size: 12px; }
 .act[aria-pressed="true"] {
-  background: linear-gradient(180deg, var(--brass-bright), var(--brass));
+  background: var(--brass);
   color: #221a0a;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 6px 16px -8px rgba(216, 196, 154, 0.6);
 }
 .act:disabled { opacity: 0.4; cursor: default; }
 
 .colors { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
 .colorbtn {
-  width: 52px; height: 52px; border-radius: 14px; border: 2px solid var(--c);
-  background: color-mix(in srgb, var(--c) 22%, var(--surface));
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  width: 52px; height: 52px; border-radius: 4px; border: 2px solid rgba(0, 0, 0, 0.28);
+  background: var(--c);
+  display: flex; align-items: center; justify-content: center;
   cursor: grab; touch-action: none; user-select: none;
 }
 .colorbtn:disabled { opacity: 0.3; cursor: default; }
-.colorbtn__mark { font-size: 18px; color: var(--c); }
-.colorbtn__n { font-size: 11px; color: var(--muted); font-family: var(--font-display); }
+.colorbtn__n { font-size: 13px; font-weight: 700; color: rgba(0, 0, 0, 0.62); font-family: var(--font-display); }
 /* ドラッグ中、指の下について動く箱の分身。position は JS が毎フレーム書き換える */
 .colorbtn--ghost {
   position: fixed; left: 0; top: 0; z-index: 20; pointer-events: none;
   transform: translate(-50%, -130%) scale(1.08);
-  box-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.6);
+  border-radius: 4px; border: 2px solid rgba(0, 0, 0, 0.28);
   background: var(--c);
 }
-.colorbtn--ghost .colorbtn__mark { color: rgba(0, 0, 0, 0.6); }
 
 .decide { display: flex; justify-content: center; gap: 10px; }
 .decide .btn { min-width: 120px; }
 .decide .btn--main {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--pc) 78%, white), var(--pc));
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 8px 18px -8px color-mix(in srgb, var(--pc) 65%, transparent);
+  background: var(--pc);
+  border-color: var(--pc);
 }
 
 /* ---- 結果（盤の上に、下寄せのカードで重ねる） ---- */
@@ -211,19 +200,14 @@ button { font: inherit; color: inherit; }
 .result {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
   width: min(420px, 100%); margin: 0 auto;
-  padding: 18px 16px; border-radius: 18px 18px 0 0; border: 1px solid var(--line); border-bottom: 0;
-  background: color-mix(in srgb, var(--surface) 96%, transparent);
-  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  padding: 18px 16px; border-radius: 4px 4px 0 0; border: 1px solid var(--line); border-bottom: 0;
+  border-top: 2px solid var(--pc);
+  background: var(--surface);
   text-align: center;
   max-height: calc(100% - 12px);
   overflow: hidden auto;
   padding-bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
   animation: result-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.result__glow {
-  position: absolute; left: 50%; top: -40px; width: 280px; height: 140px; transform: translateX(-50%);
-  background: radial-gradient(ellipse, color-mix(in srgb, var(--pc) 55%, transparent), transparent 70%);
-  pointer-events: none;
 }
 .result__head { position: relative; margin: 0 0 2px; font-size: 25px; font-weight: 800; letter-spacing: 0.01em; font-family: var(--font-display); }
 .result__moves { position: relative; margin: 0; font-size: 13px; color: var(--muted); }
@@ -233,12 +217,11 @@ button { font: inherit; color: inherit; }
 /* ---- 遊び方・メニュー ---- */
 .help, .menu {
   width: min(440px, calc(100% - 24px)); max-height: calc(100dvh - 48px);
-  padding: 20px; border: 1px solid var(--line); border-radius: 18px;
-  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  padding: 20px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--surface);
   color: var(--fg); line-height: 1.65; font-size: 15px;
-  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.6);
 }
-.help::backdrop, .menu::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(2px); }
+.help::backdrop, .menu::backdrop { background: rgba(0, 0, 0, 0.6); }
 .help h2, .menu h2 { margin: 0 0 10px; font-size: 20px; color: var(--brass); }
 .help ol { margin: 0; padding-left: 1.3em; }
 .help li + li { margin-top: 4px; }

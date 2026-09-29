@@ -142,11 +142,6 @@ function drawDemoCage(ctx, w, h, board) {
       ctx.strokeStyle = 'rgba(0,0,0,0.25)';
       ctx.lineWidth = 1;
       ctx.stroke();
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.font = `${size * 0.5}px system-ui`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(COLOR_META[c.color].mark, sx, sy + size * 0.04);
     } else {
       ctx.strokeStyle = 'rgba(216, 196, 154, 0.35)';
       ctx.lineWidth = 1;
@@ -442,15 +437,11 @@ function cubeTexture(color) {
   cv.width = cv.height = W;
   const x = cv.getContext('2d');
   x.fillStyle = COLOR_META[color].hex;
-  x.beginPath(); x.roundRect(3, 3, W - 6, W - 6, 16); x.fill();
-  // くぼんで刻印されたように見せる: 右下に薄い影、左上に薄いハイライトをずらして重ねる
-  x.font = `${W * 0.52}px system-ui`;
-  x.textAlign = 'center'; x.textBaseline = 'middle';
-  const mx = W / 2, my = W / 2 + W * 0.03;
-  x.fillStyle = 'rgba(255,255,255,0.22)';
-  x.fillText(COLOR_META[color].mark, mx - 1.5, my - 1.5);
-  x.fillStyle = 'rgba(0,0,0,0.58)';
-  x.fillText(COLOR_META[color].mark, mx + 1, my + 1);
+  x.beginPath(); x.roundRect(3, 3, W - 6, W - 6, 10); x.fill();
+  // 記号は使わず、幾何学的な色の角丸四角に細い縁取りだけを付ける
+  x.strokeStyle = 'rgba(0,0,0,0.22)';
+  x.lineWidth = 3;
+  x.stroke();
   const t = new THREE.CanvasTexture(cv);
   t.colorSpace = THREE.SRGBColorSpace;
   cubeTexCache.set(color, t);
@@ -944,7 +935,7 @@ function renderHand() {
     b.className = 'colorbtn';
     b.disabled = n <= 0 || busy;
     b.style.setProperty('--c', COLOR_META[color].hex);
-    b.innerHTML = `<span class="colorbtn__mark">${COLOR_META[color].mark}</span><span class="colorbtn__n">${n}</span>`;
+    b.innerHTML = `<span class="colorbtn__n">${n}</span>`;
     b.addEventListener('pointerdown', (e) => startHandDrag(e, b, color));
     box.append(b);
   });
@@ -957,7 +948,6 @@ function startHandDrag(e, el, color) {
   const ghost = document.createElement('div');
   ghost.className = 'colorbtn colorbtn--ghost';
   ghost.style.setProperty('--c', COLOR_META[color].hex);
-  ghost.innerHTML = `<span class="colorbtn__mark">${COLOR_META[color].mark}</span>`;
   document.body.append(ghost);
   handDrag = { color, pointerId: e.pointerId, el, ghost, hoverCol: null };
   positionGhost(e.clientX, e.clientY);
