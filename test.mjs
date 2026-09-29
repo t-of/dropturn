@@ -137,12 +137,14 @@ console.log('戻す手の禁止: ok');
   let g = newGame(2, () => 0);
   // 手で「手持ちがなくなった直後」の局面を作る
   g.hand = [{ 0: 0, 1: 0, 2: 0 }, { 3: 0, 4: 0, 5: 0 }];
-  g.board = randomBoard(24); // かごを埋める（勝ち筋が偶然できたら作り直す）
-  while (judgeBoard(g.board, 2, g.turn)) g.board = randomBoard(24);
   g.afterEmpty = 1; // 次の手で引き分けになるように
+  // かごを埋める。今も、最初の手を指したあとも勝ち筋がない盤になるまで作り直す
+  let moves;
+  do {
+    g.board = randomBoard(24);
+    moves = judgeBoard(g.board, 2, g.turn) ? [] : legalMoves(g);
+  } while (!moves.length || judgeBoard(applyMove(g, moves[0]).board, 2, g.turn));
   const before = g.board;
-  const moves = legalMoves(g);
-  assert.ok(moves.length > 0, '指せる手がない（テストの盤が悪い）');
   g = applyMove(g, moves[0]);
   assert.equal(g.over, true);
   assert.equal(g.draw, true);
