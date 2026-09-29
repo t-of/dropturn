@@ -217,10 +217,10 @@ function shadowBlobTexture() {
   x.fillRect(0, 0, W, W);
   return new THREE.CanvasTexture(cv);
 }
-// フラットな墨色の台座（リアルタイム影は使わず、床のぼかした絵だけで「乗っている」感じを出す）
+// フラットな生成り色の台座（墨色のかごと見分けやすいように。リアルタイム影は使わず、床のぼかした絵だけで「乗っている」感じを出す）
 const pedestal = new THREE.Mesh(
   new THREE.CylinderGeometry(FRAME_R * 1.55, FRAME_R * 1.7, 0.14, 40),
-  new THREE.MeshLambertMaterial({ color: 0x16182b }),
+  new THREE.MeshLambertMaterial({ color: 0xcfc6b0 }),
 );
 pedestal.position.y = -FRAME_R - 0.12;
 scene.add(pedestal);
