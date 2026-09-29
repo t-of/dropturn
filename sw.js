@@ -1,6 +1,7 @@
 // オフライン用のサービスワーカー。
 //
 // 自分のファイルは network-first（つながっていれば常に最新、圏外なら保存しておいた版）。
+// ブラウザの HTTP キャッシュを通さない（install は reload、fetch は no-cache）。
 // Google Fonts は変わらないので cache-first。
 //
 // 注意: キャッシュ（CacheStorage）は t-of.github.io のすべてのアプリで共有されている。
@@ -8,7 +9,7 @@
 // keys.filter(k => k !== CACHE) のように書くと、ほかのアプリのキャッシュまで消してしまう。
 
 const PREFIX = 'dropturn-';
-const VERSION = 'v6';
+const VERSION = 'v7';
 const CACHE = `${PREFIX}${VERSION}`;
 const FONT_CACHE = `${PREFIX}fonts`;
 
@@ -29,7 +30,7 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -54,7 +55,9 @@ self.addEventListener('fetch', (e) => {
 async function networkFirst(req) {
   const cache = await caches.open(CACHE);
   try {
-    const res = await fetch(req);
+    // ブラウザの HTTP キャッシュ（Pages は 10 分）を通すと、新しい index.html と古い main.js が
+    // 混ざって動かなくなる。毎回サーバーに確かめる。
+    const res = await fetch(req, { cache: 'no-cache' });
     if (res.ok) cache.put(req, res.clone());
     return res;
   } catch {
