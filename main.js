@@ -288,6 +288,8 @@ function setPlayerGlow(hex) {
 const cageGroup = new THREE.Group();
 const frameGroup = new THREE.Group();
 const panelGroup = new THREE.Group();
+const tierFrames = [0, 1, 2].map(() => new THREE.Group());
+frameGroup.add(...tierFrames);
 const cubesGroup = new THREE.Group();
 const markerGroup = new THREE.Group();
 cageGroup.add(frameGroup, panelGroup, cubesGroup, markerGroup);
@@ -319,23 +321,31 @@ function buildFrame() {
   // 柱はマスの境目（±0.5・±1.5）に立てて、各面の窓を 3×3 にする（外周 12 本）
   const R = FRAME_R, lines = [-R, -R / 3, R / 3, R];
   const posts = [];
-  for (const x of lines) for (const z of lines) if (Math.abs(x) === R || Math.abs(z) === R) posts.push([x, z]);
-  for (const [x, z] of posts) frameGroup.add(edgeBetween([x, Y0, z], [x, Y1, z], 0.07, postMat));
-  frameGroup.add(edgeBetween([0, Y0, 0], [0, Y1, 0], 0.14, axisMat)); // ふさがっている中心の軸
-  const corners = [[-R, -R], [R, -R], [R, R], [-R, R]];
-  for (const y of lines) {
-    for (let i = 0; i < 4; i++) {
-      const [x1, z1] = corners[i], [x2, z2] = corners[(i + 1) % 4];
-      frameGroup.add(edgeBetween([x1, y, z1], [x2, y, z2], 0.05, postMat));
+  // 外周の柱は箱の面（±1.49）にめり込まないよう、少しだけ外に出す
+  const out = (c) => (Math.abs(c) === R ? Math.sign(c) * (R + 0.06) : c);
+  for (const x of lines) for (const z of lines) if (Math.abs(x) === R || Math.abs(z) === R) posts.push([out(x), out(z)]);
+  // ルービックキューブのように、柵も段ごとに分けて持つ（回す段は、その段の柵ごと回る）。
+  // 段ごとに上下の輪を少し内側に置き、段の境目に細い継ぎ目が見えるようにする。
+  const corners = [[-R, -R], [R, -R], [R, R], [-R, R]].map(([x, z]) => [out(x), out(z)]);
+  const SEAM = 0.025;
+  for (let t = 0; t < 3; t++) {
+    const yb = yOf(t) - 0.5, yt = yOf(t) + 0.5;
+    for (const [x, z] of posts) tierFrames[t].add(edgeBetween([x, yb + SEAM, z], [x, yt - SEAM, z], 0.07, postMat));
+    for (const y of [yb + SEAM, yt - SEAM]) {
+      for (let i = 0; i < 4; i++) {
+        const [x1, z1] = corners[i], [x2, z2] = corners[(i + 1) % 4];
+        tierFrames[t].add(edgeBetween([x1, y, z1], [x2, y, z2], 0.05, postMat));
+      }
     }
   }
+  frameGroup.add(edgeBetween([0, Y0, 0], [0, Y1, 0], 0.14, axisMat)); // ふさがっている中心の軸（回らない）
   // 柱の四隅の端に小さな面取りの金具を付けて、組み立てた機械らしくする（角のみ。中の柱は素通し）
   const jointGeo = new THREE.IcosahedronGeometry(0.1, 1);
   for (const y of [Y0, Y1]) {
     for (const [x, z] of corners) {
       const j = new THREE.Mesh(jointGeo, jointMat);
       j.position.set(x, y, z);
-      frameGroup.add(j);
+      tierFrames[y < 0 ? 0 : 2].add(j);
     }
     // 中心軸の上下の端にも小さなキャップ
     const cap = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), jointMat);
@@ -681,7 +691,7 @@ function cageCenterScreenX() {
 function pickTier(x, y) {
   raycaster.setFromCamera(ndc(x, y), camera);
   const targets = [...frameGroup.children, ...panelGroup.children, ...boxes.filter(Boolean)];
-  const hit = raycaster.intersectObjects(targets, false)[0];
+  const hit = raycaster.intersectObjects(targets, true)[0];
   if (!hit) return null;
   const local = cageGroup.worldToLocal(hit.point.clone());
   return Math.max(0, Math.min(2, Math.round(local.y + 1)));
@@ -843,7 +853,12 @@ async function animRotatePhysical(beforeBoard, move, dur, ghost) {
   }
   highlightTier(move.tier);
   const rotEase = reduced.matches ? easeOutCubic : easeOutBack;
-  await tween(dur, (p) => pivot.quaternion.setFromAxisAngle(Y_AXIS, angle * rotEase(p)));
+  const frame = tierFrames[move.tier]; // 段の柵も箱と一緒に回す（中心を通る Y 軸まわり）
+  await tween(dur, (p) => {
+    pivot.quaternion.setFromAxisAngle(Y_AXIS, angle * rotEase(p));
+    frame.quaternion.copy(pivot.quaternion);
+  });
+  frame.quaternion.identity(); // 90° 回った柵は元と同じ形なので、戻して終わり
   pivot.removeFromParent();
   const rotatedNoGravity = G.rotateBoard(beforeBoard, move.tier, move.dir);
   snap(rotatedNoGravity, ghost);
