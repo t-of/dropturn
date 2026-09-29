@@ -38,12 +38,12 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 
 // 見た目（§9 権利: 元の製品の黒枠・6 色の組を使わない。色ごとに形の印も付ける）
 const COLOR_META = [
-  { hex: '#f07a5a', mark: '●' }, // 0 珊瑚
-  { hex: '#f2b632', mark: '▲' }, // 1 山吹
-  { hex: '#f28ab8', mark: '◆' }, // 2 桃
-  { hex: '#7cc36b', mark: '■' }, // 3 若葉
-  { hex: '#5ab0e8', mark: '✚' }, // 4 空
-  { hex: '#9b86e0', mark: '★' }, // 5 藤
+  { hex: '#e4573d', mark: '●' }, // 0 朱
+  { hex: '#f2b632', mark: '▲' }, // 1 からし
+  { hex: '#d6336c', mark: '◆' }, // 2 桃
+  { hex: '#1e9e6a', mark: '■' }, // 3 緑
+  { hex: '#2f57e0', mark: '✚' }, // 4 青
+  { hex: '#7446d8', mark: '★' }, // 5 紫
 ];
 // 列 k(0-7) の (x, z) 位置（3×3 の外周。中心は軸でふさがっている）
 const COL_XZ = [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2], [1, 2], [0, 2], [0, 1]];
@@ -139,11 +139,11 @@ function drawDemoCage(ctx, w, h, board) {
     if (c.color >= 0) {
       ctx.fillStyle = COLOR_META[c.color].hex;
       ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.strokeStyle = 'rgba(22, 24, 43, 0.3)';
       ctx.lineWidth = 1;
       ctx.stroke();
     } else {
-      ctx.strokeStyle = 'rgba(216, 196, 154, 0.35)';
+      ctx.strokeStyle = 'rgba(22, 24, 43, 0.28)';
       ctx.lineWidth = 1;
       ctx.stroke();
     }
@@ -199,44 +199,11 @@ const scene = new THREE.Scene();
 scene.background = null;
 const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 50);
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-scene.add(new THREE.HemisphereLight(0x8fa0d8, 0x0a0e18, 0.5));
-const keyLight = new THREE.DirectionalLight(0xfff1d6, 1.35);
+// フラットな見た目にするため、環境マップ・複数光源は使わず、影のやわらかい 2 灯だけにする
+scene.add(new THREE.AmbientLight(0xffffff, 1.0));
+const keyLight = new THREE.DirectionalLight(0xffffff, 0.55);
 keyLight.position.set(2.3, 4.2, 2.6);
 scene.add(keyLight);
-// 反対側からの弱い青みの光。金属の枠に陰影の差が出て、立体感と「照り」が出る。
-const fillLight = new THREE.DirectionalLight(0x9fb6ff, 0.45);
-fillLight.position.set(-3, 1.2, -2.4);
-scene.add(fillLight);
-
-// ---- 環境マップ（真鍮・箱の照りに使う） ----
-// vendor に RoomEnvironment が無いので、色の違う面をいくつか置いた小さな部屋を自前で作り、
-// PMREMGenerator でぼかして環境マップにする（見た目は簡易な RoomEnvironment 相当。一度作るだけで毎フレームのコストはない）。
-function buildEnvironmentTexture() {
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  pmrem.compileEquirectangularShader();
-  const envScene = new THREE.Scene();
-  const room = new THREE.Mesh(
-    new THREE.BoxGeometry(14, 14, 14),
-    new THREE.MeshStandardMaterial({ side: THREE.BackSide, color: 0x05070d, roughness: 1, metalness: 0 }),
-  );
-  envScene.add(room);
-  const panel = (x, y, z, w, h, color, intensity) => {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color }));
-    m.position.set(x, y, z);
-    m.lookAt(0, 0, 0);
-    m.material.color.multiplyScalar(intensity);
-    envScene.add(m);
-  };
-  panel(0, 6.9, 0, 7, 7, 0xfff1d6, 5);     // 上: 暖かい照明
-  panel(-6.9, 1, 3, 5, 9, 0x9fb6ff, 2.2);  // 左: 冷たい反射
-  panel(6.9, -1, -3, 5, 8, 0xd8c49a, 2.6); // 右: 真鍮色の反射
-  panel(0, -6.9, 0, 6, 6, 0x14181f, 0.6);  // 下: 暗い床の映り込み
-  const rt = pmrem.fromScene(envScene, 0.035);
-  pmrem.dispose();
-  return rt.texture;
-}
-scene.environment = buildEnvironmentTexture();
 
 function shadowBlobTexture() {
   const W = 256, cv = document.createElement('canvas');
@@ -250,10 +217,10 @@ function shadowBlobTexture() {
   x.fillRect(0, 0, W, W);
   return new THREE.CanvasTexture(cv);
 }
-// つやのある金属の台座（リアルタイム影は使わず、環境マップの映り込みだけで「乗っている」感じを出す）
+// フラットな墨色の台座（リアルタイム影は使わず、床のぼかした絵だけで「乗っている」感じを出す）
 const pedestal = new THREE.Mesh(
   new THREE.CylinderGeometry(FRAME_R * 1.55, FRAME_R * 1.7, 0.14, 40),
-  new THREE.MeshStandardMaterial({ color: 0x141a2c, metalness: 0.6, roughness: 0.22, envMapIntensity: 0.9 }),
+  new THREE.MeshLambertMaterial({ color: 0x16182b }),
 );
 pedestal.position.y = -FRAME_R - 0.12;
 scene.add(pedestal);
@@ -267,16 +234,14 @@ ground.position.y = -FRAME_R - 0.04;
 scene.add(ground);
 
 // 手番の色でうっすら光る、台座の縁の輪（player glow）
-const auraMat = new THREE.MeshBasicMaterial({ color: 0xd8c49a, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+const auraMat = new THREE.MeshBasicMaterial({ color: 0xf2b632, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
 const aura = new THREE.Mesh(new THREE.RingGeometry(FRAME_R * 1.56, FRAME_R * 1.82, 40), auraMat);
 aura.rotation.x = -Math.PI / 2;
 aura.position.y = -FRAME_R - 0.1;
 scene.add(aura);
 function setPlayerGlow(hex) {
-  const c = new THREE.Color(hex);
-  auraMat.color.copy(c);
-  postMat.emissive.copy(c);
-  postMat.emissiveIntensity = 0.16;
+  // かごの枠は常に墨のフラットな色のまま。手番の色は台座の縁の輪（aura）だけに乗せる
+  auraMat.color.set(hex);
   kick();
 }
 
@@ -290,13 +255,11 @@ const markerGroup = new THREE.Group();
 cageGroup.add(frameGroup, panelGroup, cubesGroup, markerGroup);
 scene.add(cageGroup);
 
-// ---- かごの枠（真鍮色）と、少し透ける側面 ----
-const BRASS = 0xd8c49a;
-// 金属らしい照りを出すため metalness を高めにし、roughness を低めにして反射を強くする。
-// envMapIntensity は環境マップ（buildEnvironmentTexture）の映り込みの強さ。
-const postMat = new THREE.MeshStandardMaterial({ color: BRASS, metalness: 0.85, roughness: 0.24, envMapIntensity: 1.1, emissive: 0x000000, emissiveIntensity: 0 });
-const axisMat = new THREE.MeshStandardMaterial({ color: 0xc2a876, metalness: 0.8, roughness: 0.28, envMapIntensity: 1.0 });
-const jointMat = new THREE.MeshStandardMaterial({ color: 0xead9b4, metalness: 0.9, roughness: 0.18, envMapIntensity: 1.2 });
+// ---- かごの枠（墨色のフラットな面）と、少し透ける側面 ----
+const BRASS = 0x16182b; // 変数名は据え置き。かごの枠の色（墨）
+const postMat = new THREE.MeshLambertMaterial({ color: BRASS });
+const axisMat = new THREE.MeshLambertMaterial({ color: 0x2a2d4a });
+const jointMat = new THREE.MeshLambertMaterial({ color: 0xf2b632 });
 
 function edgeBetween(a, b, radius, material) {
   const start = new THREE.Vector3(...a), end = new THREE.Vector3(...b);
@@ -376,7 +339,7 @@ function buildFrame() {
 buildFrame();
 
 // ---- 段を選んでいるときの光る帯 ----
-const tierHighlightMat = new THREE.MeshBasicMaterial({ color: 0xffcf6b, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false });
+const tierHighlightMat = new THREE.MeshBasicMaterial({ color: 0xf2b632, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false });
 const tierHighlightMesh = new THREE.Mesh(new THREE.CylinderGeometry(FRAME_R * 1.28, FRAME_R * 1.28, 0.86, 24, 1, true), tierHighlightMat);
 tierHighlightMesh.visible = false;
 cageGroup.add(tierHighlightMesh);
@@ -401,8 +364,8 @@ function ringTexture(color) {
   return t;
 }
 // depthWrite: false にする（透ける板が深度を書き込むと、後ろのかご・箱が変な形に欠けて見えた）
-const markerMatOn = new THREE.MeshBasicMaterial({ map: ringTexture('#ffcf6b'), transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
-const markerMatOff = new THREE.MeshBasicMaterial({ map: ringTexture('#7a6c47'), transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false });
+const markerMatOn = new THREE.MeshBasicMaterial({ map: ringTexture('#f2b632'), transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
+const markerMatOff = new THREE.MeshBasicMaterial({ map: ringTexture('#16182b'), transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false });
 const markerGeo = new THREE.CircleGeometry(0.36, 22);
 function buildMarkers() {
   for (let col = 0; col < 8; col++) {
@@ -451,11 +414,8 @@ const cubeMatCache = new Map();
 function cubeMaterial(color, ghost) {
   const key = `${color}-${ghost}`;
   if (cubeMatCache.has(key)) return cubeMatCache.get(key);
-  // MeshPhysicalMaterial の clearcoat で、樹脂のような薄いつやを箱の表面に乗せる
-  const m = new THREE.MeshPhysicalMaterial({
-    map: cubeTexture(color), roughness: 0.5, metalness: 0.05,
-    clearcoat: 0.55, clearcoatRoughness: 0.28, envMapIntensity: 0.55,
-  });
+  // フラットな見た目にするため、つや・映り込みは付けない（MeshLambertMaterial）
+  const m = new THREE.MeshLambertMaterial({ map: cubeTexture(color) });
   if (ghost) { m.transparent = true; m.opacity = 0.42; m.depthWrite = false; }
   cubeMatCache.set(key, m);
   return m;
@@ -509,7 +469,7 @@ let winPulsing = false;
 const winFxGroup = new THREE.Group();
 cageGroup.add(winFxGroup);
 // depthTest しない: 箱の内側を筋が通っても、箱に隠れず光って見えるように
-const winBeamMat = new THREE.MeshBasicMaterial({ color: 0xffe6a8, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
+const winBeamMat = new THREE.MeshBasicMaterial({ color: 0xf2b632, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
 function sparkleTexture() {
   const W = 32, cv = document.createElement('canvas');
   cv.width = cv.height = W;
@@ -534,7 +494,7 @@ function highlightWin(lines) {
     const m = boxes[i];
     if (!m) continue;
     m.material = m.material.clone();
-    m.material.emissive = new THREE.Color(0xffe6a8);
+    m.material.emissive = new THREE.Color(0xf2b632);
     m.material.emissiveIntensity = 0.4;
     winMeshes.push(m);
   }
@@ -735,7 +695,7 @@ $('view-reset').addEventListener('click', () => { orbit = { ...HOME }; Sound.sel
 // ---- 着地の光の輪（箱が落ちた場所に、広がって消える輪） ----
 function spawnLandingRing(x, y, z) {
   const geo = new THREE.RingGeometry(0.26, 0.38, 24);
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffe6a8, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+  const mat = new THREE.MeshBasicMaterial({ color: 0xf2b632, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
   const ring = new THREE.Mesh(geo, mat);
   ring.position.set(x, y - 0.48, z);
   ring.rotation.x = -Math.PI / 2;
@@ -748,7 +708,7 @@ function spawnLandingRing(x, y, z) {
 }
 
 // ---- 返すときに、かご全体を上から下へ通り抜ける光の筋（世界座標に置くので、かごの回転につられない） ----
-const flipStreakMat = new THREE.MeshBasicMaterial({ color: 0xfff1d6, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+const flipStreakMat = new THREE.MeshBasicMaterial({ color: 0xf4eee1, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
 const flipStreak = new THREE.Mesh(new THREE.PlaneGeometry(PANEL_SIZE * 1.15, PANEL_SIZE * 1.15), flipStreakMat);
 flipStreak.rotation.x = -Math.PI / 2;
 flipStreak.visible = false;
@@ -1111,7 +1071,7 @@ function finish(before) {
       $('result-head').textContent = '引き分け';
       $('result-head').style.color = '';
       $('game').style.setProperty('--pc', 'var(--brass)');
-      setPlayerGlow('#d8c49a');
+      setPlayerGlow('#16182b');
       Sound.draw();
     } else {
       const owner = game.winner;

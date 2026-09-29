@@ -1,23 +1,29 @@
 :root {
-  --bg: #101626;
-  --surface: #182036;
-  --surface-2: #1e2846;
-  --line: rgba(216, 196, 154, 0.28);   /* 真鍮色の線 */
-  --brass: #d8c49a;
-  --brass-bright: #f0dfb4;
-  --fg: #eceef3;
-  --muted: #9aa0ab;
+  /* バウハウス風の 3 色: 墨・生成り・からし（土台）＋朱（差し色） */
+  --ink: #16182b;
+  --cream: #f4eee1;
+  --mustard: #f2b632;
+  --vermilion: #e4573d;
+
+  --bg: var(--cream);
+  --surface: var(--cream);
+  --line: rgba(22, 24, 43, 0.28);
+  --brass: var(--mustard);        /* 変数名は据え置き。ロゴ・見出しのアクセント色 */
+  --brass-bright: var(--vermilion);
+  --fg: var(--ink);
+  --muted: rgba(22, 24, 43, 0.6);
   --pc: var(--brass);   /* 手番の色。対局中に main.js が書き換える */
   /* 見出し・ロゴ・数字用の英字ディスプレイフォント（Google Fonts、sw.js が cache-first で保存する）。
      読み込めないときは太めの system-ui にフォールバックする */
   --font-display: 'Orbitron', system-ui, -apple-system, sans-serif;
 
-  --wak-bg: #182036;
-  --wak-fg: #eceef3;
-  --wak-muted: #9aa0ab;
-  --wak-line: rgba(216, 196, 154, 0.24);
-  --wak-accent: #d8c49a;
-  --wak-accent-fg: #221a0a;
+  --wak-bg: var(--cream);
+  --wak-fg: var(--ink);
+  --wak-muted: rgba(22, 24, 43, 0.6);
+  --wak-line: rgba(22, 24, 43, 0.28);
+  --wak-accent: var(--mustard);
+  --wak-accent-fg: var(--ink);
+  --wak-radius: 4px;
 }
 
 * { box-sizing: border-box; }
@@ -55,36 +61,41 @@ button { font: inherit; color: inherit; }
   transform: scale(0.94);
 }
 
+/* サブのボタン: 生成り地に墨の太枠（バウハウス風のフラット） */
 .btn {
   min-height: 48px;
   padding: 0 16px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
   background: var(--surface);
+  color: var(--ink);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
 }
+/* メインのボタン: 墨の平面に生成りの文字 */
 .btn--main {
-  border-color: var(--brass);
-  background: var(--brass);
-  color: #221a0a;
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--cream);
 }
 .btn--quiet { background: transparent; }
 .btn:disabled { opacity: 0.4; cursor: default; transform: none !important; }
 .pill {
   min-height: 40px;
-  border: 1px solid var(--line);
+  border: 2px solid var(--ink);
   background: var(--surface);
-  border-radius: 4px;
+  color: var(--ink);
+  border-radius: 0;
   padding: 6px 14px;
   font-size: 13px;
   cursor: pointer;
 }
 .icon-btn {
   width: 44px; height: 44px;
-  border: 1px solid var(--line); border-radius: 4px;
+  border: 2px solid var(--ink); border-radius: 0;
   background: var(--surface);
+  color: var(--ink);
   font-size: 20px; line-height: 1; cursor: pointer;
 }
 .credit { text-align: center; font-size: 12px; color: var(--muted); margin: 0; }
@@ -95,14 +106,21 @@ button { font: inherit; color: inherit; }
 .title, .game { animation: app-enter 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
 
 /* ---- タイトル ---- */
+/* 参考デザインの流儀: うすい点の格子の上に、角からはみ出す大きな四分円（からし・朱）を重ねる */
 .title {
-  flex: 1; min-height: 0; overflow-y: auto;
+  position: relative;
+  flex: 1; min-height: 0; overflow: hidden auto;
   display: flex; flex-direction: column;
   background:
-    repeating-linear-gradient(0deg, color-mix(in srgb, var(--brass) 7%, transparent) 0 1px, transparent 1px 56px),
-    repeating-linear-gradient(90deg, color-mix(in srgb, var(--brass) 7%, transparent) 0 1px, transparent 1px 56px),
+    radial-gradient(circle at 4px 4px, color-mix(in srgb, var(--ink) 14%, transparent) 1.6px, transparent 1.8px) 0 0 / 28px 28px,
     var(--bg);
 }
+.title::before, .title::after {
+  content: ''; position: absolute; border-radius: 50%; z-index: 0;
+}
+.title::before { top: -22%; right: -22%; width: min(75vw, 340px); height: min(75vw, 340px); background: var(--mustard); }
+.title::after { bottom: -18%; left: -18%; width: min(46vw, 220px); height: min(46vw, 220px); background: var(--vermilion); opacity: 0.9; }
+.title__main, .title__foot { position: relative; z-index: 1; }
 .title__main {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 8px; text-align: center; padding: 12px 0;
@@ -113,9 +131,9 @@ button { font: inherit; color: inherit; }
 .title__name {
   margin: 4px 0 0; font-size: 40px; letter-spacing: 0.05em; font-weight: 800; line-height: 1;
   font-family: var(--font-display);
-  color: var(--brass);
+  color: var(--ink);
 }
-.title__name-accent { color: var(--brass-bright); }
+.title__name-accent { color: var(--vermilion); }
 .title__lead { margin: 6px 0 16px; color: var(--muted); font-size: 14px; letter-spacing: 0.02em; }
 .title__buttons { display: grid; gap: 10px; width: min(280px, 100%); }
 .title__foot { display: grid; gap: 12px; padding-top: 12px; }
@@ -158,22 +176,22 @@ button { font: inherit; color: inherit; }
 .controls { display: grid; gap: 8px; }
 .actions { display: grid; grid-template-columns: 1fr; gap: 8px; width: min(200px, 100%); margin: 0 auto; }
 .act {
-  min-height: 56px; border: 1px solid var(--line); border-radius: 4px;
-  background: var(--surface);
+  min-height: 56px; border: 2px solid var(--ink); border-radius: 0;
+  background: var(--surface); color: var(--ink);
   font-weight: 700; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
 }
 .act__icon { font-size: 18px; line-height: 1; }
 .act__label { font-size: 12px; }
 .act[aria-pressed="true"] {
-  background: var(--brass);
-  color: #221a0a;
+  background: var(--ink);
+  color: var(--cream);
 }
 .act:disabled { opacity: 0.4; cursor: default; }
 
 .colors { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
 .colorbtn {
-  width: 52px; height: 52px; border-radius: 4px; border: 2px solid rgba(0, 0, 0, 0.28);
+  width: 52px; height: 52px; border-radius: 0; border: 2px solid var(--ink);
   background: var(--c);
   display: flex; align-items: center; justify-content: center;
   cursor: grab; touch-action: none; user-select: none;
@@ -184,7 +202,7 @@ button { font: inherit; color: inherit; }
 .colorbtn--ghost {
   position: fixed; left: 0; top: 0; z-index: 20; pointer-events: none;
   transform: translate(-50%, -130%) scale(1.08);
-  border-radius: 4px; border: 2px solid rgba(0, 0, 0, 0.28);
+  border-radius: 0; border: 2px solid var(--ink);
   background: var(--c);
 }
 
@@ -192,7 +210,8 @@ button { font: inherit; color: inherit; }
 .decide .btn { min-width: 120px; }
 .decide .btn--main {
   background: var(--pc);
-  border-color: var(--pc);
+  border-color: var(--ink);
+  color: var(--ink);
 }
 
 /* ---- 結果（盤の上に、下寄せのカードで重ねる） ---- */
@@ -200,8 +219,8 @@ button { font: inherit; color: inherit; }
 .result {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
   width: min(420px, 100%); margin: 0 auto;
-  padding: 18px 16px; border-radius: 4px 4px 0 0; border: 1px solid var(--line); border-bottom: 0;
-  border-top: 2px solid var(--pc);
+  padding: 18px 16px; border-radius: 0; border: 2px solid var(--ink); border-bottom: 0;
+  border-top: 4px solid var(--pc);
   background: var(--surface);
   text-align: center;
   max-height: calc(100% - 12px);
@@ -209,7 +228,7 @@ button { font: inherit; color: inherit; }
   padding-bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
   animation: result-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.result__head { position: relative; margin: 0 0 2px; font-size: 25px; font-weight: 800; letter-spacing: 0.01em; font-family: var(--font-display); }
+.result__head { position: relative; margin: 0 0 2px; font-size: 25px; font-weight: 800; letter-spacing: 0.01em; font-family: var(--font-display); color: var(--ink); }
 .result__moves { position: relative; margin: 0; font-size: 13px; color: var(--muted); }
 .result__buttons { position: relative; display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 8px; margin-top: 14px; }
 .result__buttons .btn { padding: 0 6px; white-space: nowrap; }
@@ -217,12 +236,12 @@ button { font: inherit; color: inherit; }
 /* ---- 遊び方・メニュー ---- */
 .help, .menu {
   width: min(440px, calc(100% - 24px)); max-height: calc(100dvh - 48px);
-  padding: 20px; border: 1px solid var(--line); border-radius: 4px;
+  padding: 20px; border: 2px solid var(--ink); border-radius: 0;
   background: var(--surface);
   color: var(--fg); line-height: 1.65; font-size: 15px;
 }
 .help::backdrop, .menu::backdrop { background: rgba(0, 0, 0, 0.6); }
-.help h2, .menu h2 { margin: 0 0 10px; font-size: 20px; color: var(--brass); }
+.help h2, .menu h2 { margin: 0 0 10px; font-size: 20px; color: var(--vermilion); }
 .help ol { margin: 0; padding-left: 1.3em; }
 .help li + li { margin-top: 4px; }
 .help__note { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
