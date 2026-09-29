@@ -757,7 +757,11 @@ function pickCellExtra(x, y) {
   if (!hit) return null;
   const local = cageGroup.worldToLocal(hit.point.clone());
   const cell = (v) => Math.max(0, Math.min(2, Math.round(v + 1)));
-  return { x: cell(local.x), y: cell(local.y), z: cell(local.z), point: hit.point.clone() };
+  // 触った面の向き（かごの座標で x・y・z のどれか）。その面の上でのスワイプで回せる軸は残りの 2 本
+  const n = cageGroup.worldToLocal(hit.point.clone().add(hit.face.normal.clone().transformDirection(hit.object.matrixWorld))).sub(local);
+  const a = [Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)];
+  const face = 'xyz'[a.indexOf(Math.max(...a))];
+  return { x: cell(local.x), y: cell(local.y), z: cell(local.z), point: hit.point.clone(), face };
 }
 
 // エクストラルール「倒す」の方向えらび中、タップ・カーソルの下にある面（下にできる 5 面のどれか）
@@ -828,42 +832,34 @@ sceneCanvas.addEventListener('pointermove', (e) => {
     kick();
   }
 });
-// axisVec まわりに、pointWorld を pivotWorld を通る軸で少しだけ回してみて、その動きが画面上で
-// スワイプ（dxScreen, dyScreen）と同じ向きになる回転の符号（+1/-1）を選ぶ。手前が指の方向へ動く。
-function inferDragDir(axisVec, pivotWorld, pointWorld, dxScreen, dyScreen) {
+// axisVec まわりに、pointWorld を pivotWorld を通る軸で少しだけ回したとき、画面上でどちらへ動くか
+function screenMotion(axisVec, pivotWorld, pointWorld) {
   const q = new THREE.Quaternion().setFromAxisAngle(axisVec, 0.08);
   const rel = pointWorld.clone().sub(pivotWorld).applyQuaternion(q).add(pivotWorld);
   const p0 = projectToScreen(pointWorld), p1 = projectToScreen(rel);
-  const dot = (p1.x - p0.x) * dxScreen + (p1.y - p0.y) * dyScreen;
-  return dot >= 0 ? 1 : -1;
+  return { x: p1.x - p0.x, y: p1.y - p0.y };
 }
 // 回す・倒すの dir（game-extra.js の rotate90 の向き）と、Three.js の物理的な回転角の符号は
 // 軸ごとにずれる（y は同じ向き、x・z は逆向き）。animRotateSliceExtra・animTiltExtra と揃える。
 const SLICE_ANGLE_SIGN = { y: 1, x: -1, z: -1 };
+const AXIS_VEC = { x: X_AXIS, y: Y_AXIS, z: Z_AXIS };
+// ルービックキューブと同じ: 触った面の上でスワイプすると、そのマスを通る 1 枚が指の動いた向きに回る。
+// 回す軸は、触った面に平行な 2 本のうち、回したときの動きが指の向きに近いほう。タップでは回さない。
 function endDragExtra(ds, e) {
   if (!ds.hit || busy) { kick(); return; }
-  const totalDx = e.clientX - ds.x0, totalDy = e.clientY - ds.y0;
-  const { x, y, z, point } = ds.hit;
+  const dx = e.clientX - ds.x0, dy = e.clientY - ds.y0;
+  if (Math.hypot(dx, dy) < 8) { kick(); return; }
+  const { point, face } = ds.hit;
   const pivot = cageGroup.getWorldPosition(new THREE.Vector3());
-  let axis, layer, physDir;
-  if (Math.hypot(totalDx, totalDy) < 8) {
-    // タップ: 横の段を、タップ位置がかごの中心より右なら右回り・左なら左回りに回す（今までの操作）
-    axis = 'y'; layer = y;
-    const sideDx = e.clientX >= cageCenterScreenX() ? 1 : -1;
-    physDir = inferDragDir(Y_AXIS, pivot, point, sideDx, 0);
-  } else if (Math.abs(totalDx) >= Math.abs(totalDy)) {
-    // 横スワイプ: そのマスを通る横の段を、指の動いた向きに回す
-    axis = 'y'; layer = y;
-    physDir = inferDragDir(Y_AXIS, pivot, point, totalDx, totalDy);
-  } else {
-    // 縦スワイプ: そのマスを通り、画面に向いた面に平行な縦の 1 枚を、指の動いた向きに回す
-    const vx = Math.sin(orbit.theta), vz = Math.cos(orbit.theta);
-    axis = Math.abs(vx) >= Math.abs(vz) ? 'x' : 'z';
-    layer = axis === 'x' ? x : z;
-    physDir = inferDragDir(axis === 'x' ? X_AXIS : Z_AXIS, pivot, point, totalDx, totalDy);
+  let best = null;
+  for (const axis of ['x', 'y', 'z']) {
+    if (axis === face) continue;
+    const m = screenMotion(AXIS_VEC[axis], pivot, point);
+    const dot = (m.x * dx + m.y * dy) / (Math.hypot(m.x, m.y) || 1);
+    if (!best || Math.abs(dot) > Math.abs(best.dot)) best = { axis, dot };
   }
-  const dir = physDir * SLICE_ANGLE_SIGN[axis];
-  const move = { type: 'rotate', axis, layer, dir };
+  const { axis } = best;
+  const move = { type: 'rotate', axis, layer: ds.hit[axis], dir: (best.dot >= 0 ? 1 : -1) * SLICE_ANGLE_SIGN[axis] };
   if (GE.isLegal(game, move)) { $('notice').textContent = ''; commit(move); }
   else { Sound.bad(); $('notice').textContent = BANNED_MOVE_MSG; kick(); }
 }
