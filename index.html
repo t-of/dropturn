@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101626">
+  <meta name="description" content="3×3×3のかごに色の箱を落とし、段を回すか全体をひっくり返して、同じ色を3つ並べる立体の三目並べ。1台で2〜4人。">
+  <title>DROPTURN — 立体三目並べ：落として回して 3 つそろえる</title>
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="DROPTURN">
+  <meta property="og:title" content="DROPTURN — 落として回す立体三目並べ">
+  <meta property="og:description" content="3×3×3のかごに色の箱を落とし、段を回すか全体をひっくり返して、同じ色を3つ並べる立体の三目並べ。1台で2〜4人。">
+  <meta property="og:url" content="https://t-of.github.io/dropturn/">
+  <meta property="og:image" content="https://t-of.github.io/dropturn/icons/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:locale" content="ja_JP">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <!-- apple-mobile-web-app-status-bar-style は付けない（black-translucent だと iOS 26 で上部が隠れる） -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="DROPTURN">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+
+  <link rel="stylesheet" href="./webapp-kit/webapp-kit.css">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main class="app">
+
+    <!-- ---- タイトル ---- -->
+    <section class="title" id="title">
+      <div class="title__main">
+        <canvas class="cage cage--demo" id="title-cage" width="240" height="200" aria-hidden="true"></canvas>
+        <h1 class="title__name">DROPTURN</h1>
+        <p class="title__lead">落として回す立体三目並べ</p>
+        <div class="title__buttons">
+          <button class="btn btn--main" id="resume" hidden>つづきから</button>
+          <button class="btn" data-players="2">2 人</button>
+          <button class="btn" data-players="3">3 人</button>
+          <button class="btn" data-players="4">4 人</button>
+        </div>
+      </div>
+      <div class="title__foot">
+        <div class="title__kit">
+          <button class="pill" id="howto">遊び方</button>
+          <button class="pill" data-sound>音 オン</button>
+          <button class="pill" data-wak="install" hidden>アプリにする</button>
+          <button class="pill" data-wak="share">共有</button>
+        </div>
+        <p class="credit"><a href="/">T.OF...</a> のアプリ ・ <a href="https://t-of.github.io/contact/">問い合わせ</a></p>
+      </div>
+    </section>
+
+    <!-- ---- 対局 ---- -->
+    <section class="game" id="game" hidden>
+      <header class="top">
+        <button class="icon-btn" id="menu-open" aria-label="メニュー">☰</button>
+        <p class="turn" id="turn">プレイヤー 1 の番</p>
+        <button class="icon-btn" data-sound aria-label="音">♪</button>
+      </header>
+
+      <div class="cage-wrap">
+        <canvas class="cage" id="cage" width="220" height="180"></canvas>
+        <button class="icon-btn cage__spin" id="spin" aria-label="見る向きを変える">⟲</button>
+      </div>
+
+      <div class="band-wrap" id="band-wrap">
+        <div class="band__heads" id="band-heads"></div>
+        <div class="band__drops" id="band-drops"></div>
+        <div class="band" id="band"></div>
+      </div>
+
+      <p class="notice" id="notice" aria-live="polite"></p>
+
+      <div class="controls">
+        <div class="actions" id="actions">
+          <button class="act" data-act="drop">落とす</button>
+          <button class="act" data-act="rotate">回す</button>
+          <button class="act" data-act="flip">返す</button>
+        </div>
+
+        <div class="sub" id="sub-drop" hidden>
+          <div class="colors" id="colors"></div>
+        </div>
+        <div class="sub" id="sub-rotate" hidden>
+          <p class="sub__hint" id="rotate-hint">回す段をタップ</p>
+          <div class="dirs" id="dirs" hidden>
+            <button class="btn" id="dir-left">◀ 左</button>
+            <button class="btn" id="dir-right">右 ▶</button>
+          </div>
+        </div>
+        <div class="sub" id="sub-flip" hidden>
+          <button class="btn" id="flip-preview">返して確かめる</button>
+        </div>
+
+        <div class="decide">
+          <button class="btn btn--quiet" id="cancel" hidden>やめる</button>
+          <button class="btn btn--main" id="decide" hidden>決定</button>
+        </div>
+      </div>
+
+      <!-- ---- 結果 ---- -->
+      <div class="result" id="result" hidden>
+        <p class="result__head" id="result-head"></p>
+        <p class="result__moves" id="result-moves"></p>
+        <div class="result__buttons">
+          <button class="btn" id="share-result">共有</button>
+          <button class="btn btn--main" id="again">もう一回</button>
+          <button class="btn" id="to-title">タイトルへ</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---- 遊び方 ---- -->
+    <dialog class="help" id="help">
+      <h2>遊び方</h2>
+      <ol>
+        <li><b>落とす</b>: 自分の色の箱を 1 つ、好きな列の上から落とす。</li>
+        <li><b>回す</b>: 上・中・下のどれかの段を 90° 回す。下が空いた箱は落ちる。</li>
+        <li><b>返す</b>: かご全体を上下にひっくり返す。落ちた先で並びが変わる。</li>
+      </ol>
+      <p class="help__note">どれか 1 つを選んで手番を終える。どの面でも同じ色を縦・横・斜めに 3 つ並べたら勝ち。1 手前の局面に戻す手は指せない。</p>
+      <button class="btn btn--main" id="help-close">わかった</button>
+    </dialog>
+
+    <!-- ---- メニュー ---- -->
+    <dialog class="menu" id="menu">
+      <h2>メニュー</h2>
+      <div class="menu__buttons">
+        <button class="btn" id="menu-restart">最初から</button>
+        <button class="btn" id="menu-title">タイトルへ</button>
+        <button class="btn" id="menu-howto">遊び方</button>
+        <button class="btn btn--quiet" id="menu-close">閉じる</button>
+      </div>
+    </dialog>
+
+  </main>
+
+  <script src="./webapp-kit/webapp-kit.js"></script>
+  <script src="./main.js" type="module"></script>
+</body>
+</html>
