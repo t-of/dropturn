@@ -48,6 +48,7 @@ const COLOR_META = [
 // 列 k(0-7) の (x, z) 位置（3×3 の外周。中心は軸でふさがっている）
 const COL_XZ = [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2], [1, 2], [0, 2], [0, 1]];
 const playerName = (p) => `プレイヤー ${p + 1}`;
+const BANNED_MOVE_MSG = '1 手前に戻す手、または何も変わらない手は指せません';
 
 // ---- 設定・記録 ----
 function loadSettings() {
@@ -410,13 +411,15 @@ function buildMarkers() {
   }
 }
 buildMarkers();
+// 表示は箱をドラッグしている間だけ。指に一番近い、落とせる入口だけを明るく光らせる
+// （ほかの落とせる入口は暗いまま、いっぱいの列はそもそも出さない）。
 function updateMarkers() {
-  const show = mode === 'drop' && pendingColor != null && !pendingMove;
+  const show = handDrag != null && !!game;
   for (const m of markerGroup.children) {
-    m.visible = show;
     const enabled = show && G.canDrop(game.board, m.userData.col);
     m.userData.enabled = enabled;
-    m.material = enabled ? markerMatOn : markerMatOff;
+    m.visible = enabled;
+    m.material = enabled && handDrag.hoverCol === m.userData.col ? markerMatOn : markerMatOff;
   }
   kick();
 }
@@ -646,10 +649,34 @@ function ndc(x, y) {
   const r = sceneCanvas.getBoundingClientRect();
   return new THREE.Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
 }
-function pickEntry(x, y) {
-  raycaster.setFromCamera(ndc(x, y), camera);
-  const hit = raycaster.intersectObjects(markerGroup.children, false).find((h) => h.object.visible && h.object.userData.enabled);
-  return hit ? hit.object.userData.col : null;
+// 画面上での位置（かご中心・入口）。ドラッグ中の指の下に一番近い入口を、多少ずれていても選べるように
+// raycast ではなく「投影した位置との距離」で選ぶ（指で隠れて真下に入口が無いことが多いスマホ向け）。
+function projectToScreen(worldPos) {
+  const p = worldPos.clone().project(camera);
+  const r = sceneCanvas.getBoundingClientRect();
+  return { x: r.left + (p.x * 0.5 + 0.5) * r.width, y: r.top + (-p.y * 0.5 + 0.5) * r.height };
+}
+function markerScreenPos(col) {
+  const wp = new THREE.Vector3();
+  markerGroup.children[col].getWorldPosition(wp);
+  return projectToScreen(wp);
+}
+function pickEntryNear(x, y) {
+  const r = sceneCanvas.getBoundingClientRect();
+  const maxDist = Math.min(r.width, r.height) * 0.22; // 甘めの当たり判定
+  let best = null, bestD = Infinity;
+  for (let col = 0; col < 8; col++) {
+    if (!G.canDrop(game.board, col)) continue;
+    const p = markerScreenPos(col);
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d < bestD) { bestD = d; best = col; }
+  }
+  return bestD <= maxDist ? best : null;
+}
+function cageCenterScreenX() {
+  const wp = new THREE.Vector3();
+  cageGroup.getWorldPosition(wp);
+  return projectToScreen(wp).x;
 }
 function pickTier(x, y) {
   raycaster.setFromCamera(ndc(x, y), camera);
@@ -660,18 +687,15 @@ function pickTier(x, y) {
   return Math.max(0, Math.min(2, Math.round(local.y + 1)));
 }
 
+// 段は「かごをタップ」で直接決める。動かさずに離すと、離した位置がかごの中心より
+// 右なら右回り・左なら左回りで、その場で回す（決定は挟まない）。動かせば、いつもどおり視点が回る。
 let dragState = null;
 sceneCanvas.addEventListener('pointerdown', (e) => {
   sceneCanvas.setPointerCapture(e.pointerId);
   let hit = null;
-  if (!busy) {
-    if (mode === 'drop' && pendingColor != null && !pendingMove) {
-      const col = pickEntry(e.clientX, e.clientY);
-      if (col != null) hit = { kind: 'entry', v: col };
-    } else if (mode === 'rotate' && pendingTier == null && !pendingMove) {
-      const tier = pickTier(e.clientX, e.clientY);
-      if (tier != null) hit = { kind: 'tier', v: tier };
-    }
+  if (!busy && game && !game.over && !handDrag && !pendingFlip) {
+    const tier = pickTier(e.clientX, e.clientY);
+    if (tier != null) { hit = { tier }; highlightTier(tier); }
   }
   dragState = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, hit, moved: false };
   kick();
@@ -680,7 +704,10 @@ sceneCanvas.addEventListener('pointermove', (e) => {
   if (!dragState) return;
   const dx = e.clientX - dragState.x, dy = e.clientY - dragState.y;
   dragState.x = e.clientX; dragState.y = e.clientY;
-  if (Math.hypot(e.clientX - dragState.x0, e.clientY - dragState.y0) > 8) dragState.moved = true;
+  if (!dragState.moved && Math.hypot(e.clientX - dragState.x0, e.clientY - dragState.y0) > 8) {
+    dragState.moved = true;
+    if (dragState.hit) highlightTier(null); // 動いたら視点回転に切り替え、光は消す
+  }
   if (!dragState.hit || dragState.moved) {
     orbit.theta -= dx * 0.008;
     orbit.phi = Math.max(PHI_MIN, Math.min(PHI_MAX, orbit.phi - dy * 0.008));
@@ -690,12 +717,16 @@ sceneCanvas.addEventListener('pointermove', (e) => {
 function endDrag(e) {
   const ds = dragState;
   dragState = null;
-  if (!ds || ds.moved || !ds.hit || busy) { kick(); return; }
-  if (ds.hit.kind === 'entry') onColumnPick(ds.hit.v);
-  else if (ds.hit.kind === 'tier') selectTier(ds.hit.v);
+  if (!ds) { kick(); return; }
+  if (ds.moved || !ds.hit || busy) { highlightTier(null); kick(); return; }
+  const dir = e.clientX >= cageCenterScreenX() ? 1 : -1;
+  const move = { type: 'rotate', tier: ds.hit.tier, dir };
+  highlightTier(null);
+  if (G.isLegal(game, move)) { $('notice').textContent = ''; commit(move); }
+  else { Sound.bad(); $('notice').textContent = BANNED_MOVE_MSG; kick(); }
 }
 sceneCanvas.addEventListener('pointerup', endDrag);
-sceneCanvas.addEventListener('pointercancel', () => { dragState = null; kick(); });
+sceneCanvas.addEventListener('pointercancel', () => { dragState = null; highlightTier(null); kick(); });
 
 $('view-reset').addEventListener('click', () => { orbit = { ...HOME }; Sound.select(); kick(); });
 
@@ -728,7 +759,58 @@ function updateFlipStreak(p) {
 }
 function hideFlipStreak() { flipStreak.visible = false; flipStreakMat.opacity = 0; }
 
-async function animateGravitySettle(fromBoard, toBoard, dur) {
+// ---- 物理っぽい落下（自由落下してから、小さく 1〜2 回はねて止まる） ----
+// 本物の物理エンジンは使わず、区間ごとに y = h0 − ½g t² の放物線をつないで近似する。
+// ponytail: 簡易な 2 回はねモデル（水平方向の物理はなし）。もっと本物らしくしたければ
+// 速度を積分する本当の物理シミュレーションに差し替える。値はここ 1 か所にまとめてある。
+const FALL_G = 60;          // 世界の単位/秒²
+const FALL_BOUNCE_E = 0.3;  // 反発係数
+const FALL_MAX_BOUNCES = 2;
+
+function buildFallProfile(height) {
+  const h0 = Math.max(0, height);
+  const t0 = Math.sqrt((2 * Math.max(h0, 0.001)) / FALL_G);
+  const segs = [{ start: 0, dur: t0, kind: 'drop', h0 }];
+  let t = t0, h = h0 * FALL_BOUNCE_E ** 2, n = 0;
+  while (h > 0.015 && n < FALL_MAX_BOUNCES) {
+    const vUp = Math.sqrt(2 * FALL_G * h);
+    const dur = (2 * vUp) / FALL_G;
+    segs.push({ start: t, dur, kind: 'bounce', vUp });
+    t += dur;
+    h *= FALL_BOUNCE_E ** 2;
+    n += 1;
+  }
+  return { segs, total: t };
+}
+function fallHeightAt(profile, elapsed) {
+  const segs = profile.segs;
+  let s = segs[segs.length - 1];
+  for (const seg of segs) if (elapsed <= seg.start + seg.dur) { s = seg; break; }
+  const dt = Math.max(0, elapsed - s.start);
+  if (s.kind === 'drop') return Math.max(0, s.h0 - 0.5 * FALL_G * dt * dt);
+  return Math.max(0, s.vUp * dt - 0.5 * FALL_G * dt * dt);
+}
+// mesh を fromY → toY へ物理っぽく落とす。onLand は最初に着地面に触れた瞬間に 1 度だけ呼ばれる
+// （光の輪・つぶれの合図に使う）。reduced-motion のときは、はねなしで短く落ちるだけにする。
+async function dropMesh(mesh, fromY, toY, onLand) {
+  if (reduced.matches) {
+    await tween(80, (p) => { mesh.position.y = fromY + (toY - fromY) * easeOutCubic(p); });
+    mesh.position.y = toY;
+    onLand?.();
+    return;
+  }
+  const profile = buildFallProfile(fromY - toY);
+  let landed = false;
+  await tween(Math.max(60, profile.total * 1000), (p) => {
+    const elapsed = p * profile.total;
+    mesh.position.y = toY + fallHeightAt(profile, elapsed);
+    if (!landed && elapsed >= profile.segs[0].dur) { landed = true; onLand?.(); }
+  });
+  mesh.position.y = toY;
+  if (!landed) onLand?.();
+}
+
+async function animateGravitySettle(fromBoard, toBoard) {
   const moves = [];
   for (let col = 0; col < 8; col++) {
     const fromTiers = [0, 1, 2].filter((t) => fromBoard[G.idx(col, t)] !== G.EMPTY);
@@ -740,10 +822,7 @@ async function animateGravitySettle(fromBoard, toBoard, dur) {
     });
   }
   if (!moves.length) return;
-  await tween(dur, (p) => {
-    const e = easeOutCubic(p);
-    for (const mv of moves) mv.mesh.position.y = mv.fromY + (mv.toY - mv.fromY) * e;
-  });
+  await Promise.all(moves.map(({ mesh, fromY, toY }) => dropMesh(mesh, fromY, toY)));
 }
 
 // ---- 段を回す（予告のときも決定のときも、実際に段が 90° 回る） ----
@@ -769,11 +848,11 @@ async function animRotatePhysical(beforeBoard, move, dur, ghost) {
   const rotatedNoGravity = G.rotateBoard(beforeBoard, move.tier, move.dir);
   snap(rotatedNoGravity, ghost);
   const afterGravity = G.gravity(rotatedNoGravity);
-  await animateGravitySettle(rotatedNoGravity, afterGravity, Math.max(80, dur * 0.55));
+  await animateGravitySettle(rotatedNoGravity, afterGravity);
 }
 
-// ---- 落とす: 上から落ちる ----
-async function animPlayDrop(beforeBoard, move, dur) {
+// ---- 落とす: 上から物理っぽく落ちる ----
+async function animPlayDrop(beforeBoard, move) {
   clearGhost();
   snap(beforeBoard, false);
   const tier = [0, 1, 2].find((t) => beforeBoard[G.idx(move.col, t)] === G.EMPTY);
@@ -784,15 +863,14 @@ async function animPlayDrop(beforeBoard, move, dur) {
   mesh.position.set(x, fromY, z);
   cubesGroup.add(mesh);
   boxes[G.idx(move.col, tier)] = mesh;
-  await tween(dur, (p) => { mesh.position.y = fromY + (toY - fromY) * easeOutCubic(p); });
-  if (!reduced.matches) {
+  await dropMesh(mesh, fromY, toY, () => {
+    if (reduced.matches) return;
     spawnLandingRing(x, toY, z);
-    await tween(160, (p) => {
+    tween(160, (p) => {
       const s = 1 - Math.sin(p * Math.PI) * 0.14;
       mesh.scale.set(1 + (1 - s) * 0.35, s, 1 + (1 - s) * 0.35); // 着地で小さくつぶれてから戻る
-    });
-    mesh.scale.set(1, 1, 1);
-  }
+    }).then(() => mesh.scale.set(1, 1, 1));
+  });
 }
 
 // ---- 返す: かご全体が 180° 回ってから、箱が落ち直す ----
@@ -808,7 +886,7 @@ async function animPlayFlip(beforeBoard, afterBoard, dur) {
   cageGroup.quaternion.identity();
   const noGravity = G.flipBoard(beforeBoard);
   snap(noGravity, false);
-  await animateGravitySettle(noGravity, afterBoard, Math.max(100, dur * 0.6));
+  await animateGravitySettle(noGravity, afterBoard);
   snap(afterBoard, false);
 }
 
@@ -816,12 +894,11 @@ async function animPlayFlip(beforeBoard, afterBoard, dur) {
 // ---- 対局 ----
 // ==========================================================================
 let game = null;
-let mode = null;          // 'drop' | 'rotate' | 'flip' | null（選んでいる手の種類）
-let pendingColor = null;
-let pendingTier = null;
-let pendingMove = null;   // 確定前の、予告している手
+let pendingFlip = false;  // 「返す」の確認中か
 let busy = false;
-let animToken = 0;        // 進行中の予告アニメを無効にするための合いことば
+let animToken = 0;        // 進行中のアニメを無効にするための合いことば
+let lastSnapshot = null;  // 「戻る」用に、直前の commit の前の game を 1 手分だけ持っておく
+let handDrag = null;      // 手持ちの箱をドラッグ中の状態 { color, pointerId, el, ghost, hoverCol }
 
 function loadGame() {
   const g = load('game', null);
@@ -832,61 +909,6 @@ function persist() {
   if (game && !game.over) save('game', game); else clear('game');
 }
 
-function onColumnPick(col) {
-  if (mode === 'drop' && pendingColor != null && !pendingMove) trySetMove({ type: 'drop', color: pendingColor, col });
-}
-
-function selectTier(tier) {
-  pendingTier = tier;
-  Sound.select();
-  $('rotate-hint').textContent = `${['下', '中', '上'][tier]}の段。向きを選ぶ`;
-  $('dirs').hidden = false;
-  highlightTier(tier);
-  render();
-}
-
-function trySetMove(move) {
-  if (!G.isLegal(game, move)) {
-    Sound.bad();
-    $('notice').textContent = reasonFor(move);
-    return;
-  }
-  pendingMove = move;
-  if (move.type === 'rotate') Sound.rotate(); else Sound.select();
-  $('notice').textContent = '';
-  render();
-  applyPreview(move);
-}
-
-// 予告: 落とすは静かに半透明で見せる。回すは、そのとおりに段を回す。
-async function applyPreview(move) {
-  const tok = ++animToken;
-  if (move.type === 'drop') {
-    clearGhost();
-    const tier = [0, 1, 2].find((t) => game.board[G.idx(move.col, t)] === G.EMPTY);
-    if (tier != null) {
-      const mesh = makeCube(move.color, true);
-      mesh.position.set(...cellPos(move.col, tier));
-      cubesGroup.add(mesh);
-      ghostMeshes.push(mesh);
-      kick();
-    }
-  } else if (move.type === 'rotate') {
-    busy = true;
-    render();
-    clearGhost();
-    await animRotatePhysical(game.board, move, reduced.matches ? 90 : 260, true);
-    if (tok !== animToken) return;
-    busy = false;
-    render();
-  }
-}
-
-function reasonFor(move) {
-  if (move.type === 'drop') return 'その列はいっぱいです';
-  return '1 手前に戻す手、または何も変わらない手は指せません';
-}
-
 function resetScenePreview() {
   animToken++;
   clearGhost();
@@ -894,82 +916,148 @@ function resetScenePreview() {
   if (game) snap(game.board, false);
 }
 
-// ---- 手の種類の選択 ----
-$('actions').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-act]');
-  if (!b || busy) return;
-  selectAction(b.dataset.act);
-});
-
-function selectAction(act) {
-  if (act === 'flip') {
-    // 返すは予告なしで、すぐ指す
-    const move = { type: 'flip' };
-    if (!G.isLegal(game, move)) { Sound.bad(); $('notice').textContent = reasonFor(move); return; }
-    resetScenePreview();
-    commit(move);
-    return;
-  }
-  mode = act;
-  pendingColor = null;
-  pendingTier = null;
-  pendingMove = null;
-  $('notice').textContent = '';
-  clearGhost();
-  highlightTier(null);
-  Sound.select();
-  render();
-}
-$('dir-left').addEventListener('click', () => { if (pendingTier != null) trySetMove({ type: 'rotate', tier: pendingTier, dir: -1 }); });
-$('dir-right').addEventListener('click', () => { if (pendingTier != null) trySetMove({ type: 'rotate', tier: pendingTier, dir: 1 }); });
-
-function renderColors() {
-  const box = $('colors');
+// ---- 手持ちの箱（ドラッグ元）。落とすは「箱を押さえてかごの上へドラッグし、離す」だけ ----
+function renderHand() {
+  const box = $('hand');
   box.innerHTML = '';
-  if (!game) return;
+  if (!game || game.over) return;
   const hand = game.hand[game.turn];
   Object.entries(hand).forEach(([color, n]) => {
     color = +color;
     const b = document.createElement('button');
+    b.type = 'button';
     b.className = 'colorbtn';
-    b.disabled = n <= 0;
-    b.setAttribute('aria-pressed', pendingColor === color);
+    b.disabled = n <= 0 || busy;
     b.style.setProperty('--c', COLOR_META[color].hex);
     b.innerHTML = `<span class="colorbtn__mark">${COLOR_META[color].mark}</span><span class="colorbtn__n">${n}</span>`;
-    b.addEventListener('click', () => {
-      pendingColor = color; pendingMove = null;
-      clearGhost();
-      Sound.select();
-      render();
-    });
+    b.addEventListener('pointerdown', (e) => startHandDrag(e, b, color));
     box.append(b);
   });
 }
 
-// ---- 決定・やめる ----
+function startHandDrag(e, el, color) {
+  if (busy || !game || game.over || handDrag) return;
+  e.preventDefault();
+  if (pendingFlip) { pendingFlip = false; render(); }
+  el.setPointerCapture(e.pointerId);
+  const ghost = document.createElement('div');
+  ghost.className = 'colorbtn colorbtn--ghost';
+  ghost.style.setProperty('--c', COLOR_META[color].hex);
+  ghost.innerHTML = `<span class="colorbtn__mark">${COLOR_META[color].mark}</span>`;
+  document.body.append(ghost);
+  handDrag = { color, pointerId: e.pointerId, el, ghost, hoverCol: null };
+  positionGhost(e.clientX, e.clientY);
+  Sound.select();
+  updateMarkers();
+  el.addEventListener('pointermove', onHandDragMove);
+  el.addEventListener('pointerup', onHandDragEnd);
+  el.addEventListener('pointercancel', onHandDragEnd);
+}
+function positionGhost(x, y) {
+  handDrag.ghost.style.left = `${x}px`;
+  handDrag.ghost.style.top = `${y}px`;
+}
+function onHandDragMove(e) {
+  if (!handDrag || e.pointerId !== handDrag.pointerId) return;
+  positionGhost(e.clientX, e.clientY);
+  const col = pickEntryNear(e.clientX, e.clientY);
+  if (col !== handDrag.hoverCol) {
+    handDrag.hoverCol = col;
+    updateMarkers();
+    updateDropGhostPreview(col, handDrag.color);
+  }
+}
+function updateDropGhostPreview(col, color) {
+  clearGhost();
+  if (col == null) { kick(); return; }
+  const tier = [0, 1, 2].find((t) => game.board[G.idx(col, t)] === G.EMPTY);
+  if (tier == null) return;
+  const mesh = makeCube(color, true);
+  mesh.position.set(...cellPos(col, tier));
+  cubesGroup.add(mesh);
+  ghostMeshes.push(mesh);
+  kick();
+}
+function endHandDragListeners(el) {
+  el.removeEventListener('pointermove', onHandDragMove);
+  el.removeEventListener('pointerup', onHandDragEnd);
+  el.removeEventListener('pointercancel', onHandDragEnd);
+}
+function onHandDragEnd(e) {
+  if (!handDrag || e.pointerId !== handDrag.pointerId) return;
+  const { color, hoverCol, ghost, el } = handDrag;
+  endHandDragListeners(el);
+  clearGhost();
+  handDrag = null;
+  updateMarkers();
+  if (hoverCol != null) {
+    const move = { type: 'drop', color, col: hoverCol };
+    if (G.isLegal(game, move)) { ghost.remove(); $('notice').textContent = ''; commit(move); return; }
+  }
+  returnGhostHome(ghost, el);
+  render();
+}
+// 入口から外れた所で離したら、指を離した所から手持ちの元の位置へふわっと戻す
+function returnGhostHome(ghost, el) {
+  if (reduced.matches) { ghost.remove(); return; }
+  const r = el.getBoundingClientRect();
+  ghost.style.transition = 'left 0.22s cubic-bezier(.2,.8,.2,1), top 0.22s cubic-bezier(.2,.8,.2,1), transform 0.22s';
+  ghost.style.left = `${r.left + r.width / 2}px`;
+  ghost.style.top = `${r.top + r.height / 2}px`;
+  ghost.style.transform = 'translate(-50%, -50%) scale(0.85)';
+  ghost.addEventListener('transitionend', () => ghost.remove(), { once: true });
+  setTimeout(() => ghost.remove(), 260); // 保険（transitionend が来ない環境向け）
+}
+
+// ---- 返す（確認してから） ----
+$('actions').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act="flip"]');
+  if (!b || busy || pendingFlip) return;
+  const move = { type: 'flip' };
+  if (!G.isLegal(game, move)) { Sound.bad(); $('notice').textContent = BANNED_MOVE_MSG; return; }
+  pendingFlip = true;
+  $('notice').textContent = '';
+  Sound.select();
+  render();
+});
 $('decide').addEventListener('click', () => {
-  if (!pendingMove || busy) return;
-  commit(pendingMove);
+  if (!pendingFlip || busy) return;
+  pendingFlip = false;
+  commit({ type: 'flip' });
 });
 $('cancel').addEventListener('click', () => {
-  mode = null; pendingColor = null; pendingTier = null; pendingMove = null;
+  pendingFlip = false;
   $('notice').textContent = '';
+  render();
+});
+
+// ---- 戻る（直前の 1 手だけ取り消す） ----
+$('undo').addEventListener('click', () => {
+  if (busy || !lastSnapshot || !game || game.over) return;
+  game = lastSnapshot;
+  lastSnapshot = null;
+  pendingFlip = false;
   resetScenePreview();
+  persist();
+  Sound.select();
   render();
 });
 
 async function commit(move) {
+  const before = game;
+  lastSnapshot = structuredClone(before); // 「戻る」用。1 手分だけでよい
   busy = true;
   render();
-  const before = game;
-  const afterState = G.applyMove(game, move);
+  const afterState = G.applyMove(before, move);
   const dur = reduced.matches ? 70 : 320;
   animToken++;
-  if (move.type === 'drop') { Sound.land(); await animPlayDrop(before.board, move, dur); }
-  else if (move.type === 'rotate') { Sound.rotate(); snap(afterState.board, false); }
+  clearGhost();
+  if (move.type === 'drop') { Sound.land(); await animPlayDrop(before.board, move); }
+  else if (move.type === 'rotate') { Sound.rotate(); await animRotatePhysical(before.board, move, dur, false); }
   else { Sound.flip(); await animPlayFlip(before.board, afterState.board, dur); }
+  snap(afterState.board, false); // アニメの内部で見た目がずれても、確定時に必ず作り直す
   game = afterState;
-  mode = null; pendingColor = null; pendingTier = null; pendingMove = null;
+  pendingFlip = false;
   highlightTier(null);
   persist();
   busy = false;
@@ -988,26 +1076,18 @@ function render() {
     setPlayerGlow(hex);
   }
 
-  $('sub-drop').hidden = mode !== 'drop';
-  $('sub-rotate').hidden = mode !== 'rotate';
-  if (mode === 'drop') renderColors();
-  if (mode === 'rotate' && pendingTier == null) { $('rotate-hint').textContent = '回す段（かご）をタップ'; $('dirs').hidden = true; }
+  renderHand();
 
-  $('decide').hidden = !pendingMove;
-  $('decide').disabled = busy;
-  $('cancel').hidden = !mode;
-  $('cancel').disabled = busy;
+  $('flip-confirm').hidden = !pendingFlip;
 
   $('actions').hidden = game.over; // 結果カードの左右から操作ボタンがのぞかないように
-  const moves = G.legalMoves(game);
-  const canDropAny = moves.some((m) => m.type === 'drop');
-  $('actions').querySelectorAll('[data-act]').forEach((b) => {
-    b.disabled = busy || (b.dataset.act === 'drop' && !canDropAny);
-  });
+  $('actions').querySelectorAll('[data-act]').forEach((b) => { b.disabled = busy || pendingFlip; });
+
+  $('undo').disabled = busy || !lastSnapshot || game.over;
 
   if (game.afterEmpty != null && !game.over) {
     $('notice').textContent = `あと ${game.afterEmpty} 手で引き分け`;
-  } else if (!pendingMove) {
+  } else if (!pendingFlip) {
     $('notice').textContent = '';
   }
 
@@ -1079,7 +1159,8 @@ function enterGame() {
 
 function startGame(players) {
   game = G.newGame(players);
-  mode = null; pendingColor = null; pendingTier = null; pendingMove = null;
+  pendingFlip = false;
+  lastSnapshot = null;
   busy = false;
   $('result').hidden = true;
   persist();
@@ -1100,7 +1181,8 @@ $('resume').addEventListener('click', () => {
   const g = loadGame();
   if (!g) return;
   game = g;
-  mode = null; pendingColor = null; pendingTier = null; pendingMove = null;
+  pendingFlip = false;
+  lastSnapshot = null;
   busy = false;
   enterGame();
 });

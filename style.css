@@ -157,11 +157,13 @@ button { font: inherit; color: inherit; }
 }
 .scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; user-select: none; }
 .scene__reset { position: absolute; right: 8px; bottom: 8px; opacity: 0.85; }
+.scene__undo { position: absolute; left: 8px; bottom: 8px; opacity: 0.85; }
+.scene__undo:disabled { opacity: 0.3; }
 
 .notice { min-height: 1.4em; margin: 0; text-align: center; font-size: 13px; color: var(--muted); }
 
 .controls { display: grid; gap: 8px; }
-.actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.actions { display: grid; grid-template-columns: 1fr; gap: 8px; width: min(200px, 100%); margin: 0 auto; }
 .act {
   min-height: 56px; border: 1px solid var(--line); border-radius: 12px;
   background: linear-gradient(180deg, var(--surface-2), var(--surface));
@@ -178,24 +180,24 @@ button { font: inherit; color: inherit; }
 }
 .act:disabled { opacity: 0.4; cursor: default; }
 
-.sub { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.sub__hint { margin: 0; font-size: 13px; color: var(--muted); }
 .colors { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
 .colorbtn {
   width: 52px; height: 52px; border-radius: 14px; border: 2px solid var(--c);
   background: color-mix(in srgb, var(--c) 22%, var(--surface));
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  cursor: pointer;
-}
-.colorbtn[aria-pressed="true"] {
-  background: var(--c);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 35%, transparent), 0 6px 16px -6px color-mix(in srgb, var(--c) 70%, transparent);
+  cursor: grab; touch-action: none; user-select: none;
 }
 .colorbtn:disabled { opacity: 0.3; cursor: default; }
 .colorbtn__mark { font-size: 18px; color: var(--c); }
-.colorbtn[aria-pressed="true"] .colorbtn__mark { color: rgba(0, 0, 0, 0.6); }
 .colorbtn__n { font-size: 11px; color: var(--muted); font-family: var(--font-display); }
-.dirs { display: flex; gap: 10px; }
+/* ドラッグ中、指の下について動く箱の分身。position は JS が毎フレーム書き換える */
+.colorbtn--ghost {
+  position: fixed; left: 0; top: 0; z-index: 20; pointer-events: none;
+  transform: translate(-50%, -130%) scale(1.08);
+  box-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.6);
+  background: var(--c);
+}
+.colorbtn--ghost .colorbtn__mark { color: rgba(0, 0, 0, 0.6); }
 
 .decide { display: flex; justify-content: center; gap: 10px; }
 .decide .btn { min-width: 120px; }

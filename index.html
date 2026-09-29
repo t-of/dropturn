@@ -71,32 +71,24 @@
 
       <div class="scene-wrap">
         <canvas class="scene" id="scene"></canvas>
+        <button class="icon-btn scene__undo" id="undo" aria-label="1 手戻る" disabled>↺</button>
         <button class="icon-btn scene__reset" id="view-reset" aria-label="視点を正面に戻す">⟲</button>
       </div>
 
       <p class="notice" id="notice" aria-live="polite"></p>
 
       <div class="controls">
+        <!-- 手持ちの色の箱。押さえてかごの上までドラッグし、入口の上で離すと落ちる -->
+        <div class="colors" id="hand"></div>
+        <!-- 回すはかごの段を直に指でタップして決める（このボタンはない） -->
+
         <div class="actions" id="actions">
-          <button class="act" data-act="drop"><span class="act__icon" aria-hidden="true">⬇</span><span class="act__label">落とす</span></button>
-          <button class="act" data-act="rotate"><span class="act__icon" aria-hidden="true">↻</span><span class="act__label">回す</span></button>
           <button class="act" data-act="flip"><span class="act__icon" aria-hidden="true">⇅</span><span class="act__label">返す</span></button>
         </div>
 
-        <div class="sub" id="sub-drop" hidden>
-          <div class="colors" id="colors"></div>
-        </div>
-        <div class="sub" id="sub-rotate" hidden>
-          <p class="sub__hint" id="rotate-hint">回す段をタップ</p>
-          <div class="dirs" id="dirs" hidden>
-            <button class="btn" id="dir-left">◀ 左</button>
-            <button class="btn" id="dir-right">右 ▶</button>
-          </div>
-        </div>
-
-        <div class="decide">
-          <button class="btn btn--quiet" id="cancel" hidden>やめる</button>
-          <button class="btn btn--main" id="decide" hidden>決定</button>
+        <div class="decide" id="flip-confirm" hidden>
+          <button class="btn btn--quiet" id="cancel">やめる</button>
+          <button class="btn btn--main" id="decide">返す</button>
         </div>
       </div>
 
@@ -117,11 +109,11 @@
     <dialog class="help" id="help">
       <h2>遊び方</h2>
       <ol>
-        <li><b>落とす</b>: 自分の色の箱を 1 つ、好きな列の上から落とす。</li>
-        <li><b>回す</b>: 上・中・下のどれかの段を 90° 回す。下が空いた箱は落ちる。</li>
-        <li><b>返す</b>: かご全体を上下にひっくり返す。落ちた先で並びが変わる。</li>
+        <li><b>落とす</b>: 自分の色の箱を指で押さえ、かごの上までドラッグして、入口の上で離す。</li>
+        <li><b>回す</b>: かごの段を指でタップ。タップした場所がかごの中心より右なら右回り、左なら左回りに 90° 回る。下が空いた箱は落ちる。</li>
+        <li><b>返す</b>: 「返す」→ 確認して、かご全体を上下にひっくり返す。</li>
       </ol>
-      <p class="help__note">どれか 1 つを選んで手番を終える。どの面でも同じ色を縦・横・斜めに 3 つ並べたら勝ち。1 手前の局面に戻す手は指せない。</p>
+      <p class="help__note">どれか 1 つで手番を終える。どの面でも同じ色を縦・横・斜めに 3 つ並べたら勝ち。1 手前の局面に戻す手は指せない。「↺」で直前の 1 手だけ取り消せる。</p>
       <button class="btn btn--main" id="help-close">わかった</button>
     </dialog>
 
