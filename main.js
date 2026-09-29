@@ -771,6 +771,23 @@ async function dropMesh(mesh, fromY, toY, onLand) {
   if (!landed) onLand?.();
 }
 
+// 重力で落ちた箱を、落ちる前の位置へ持ち上げる（戻すときの逆再生。fromBoard が落ちる前、toBoard が落ちたあと）
+async function animateGravityUnsettle(fromBoard, toBoard, dur) {
+  const lifts = [];
+  for (let col = 0; col < 8; col++) {
+    const fromTiers = [0, 1, 2].filter((t) => fromBoard[G.idx(col, t)] !== G.EMPTY);
+    const toTiers = [0, 1, 2].filter((t) => toBoard[G.idx(col, t)] !== G.EMPTY);
+    fromTiers.forEach((ft, i) => {
+      const tt = toTiers[i];
+      const mesh = boxes[G.idx(col, tt)];
+      if (mesh && tt !== ft) lifts.push({ mesh, fromY: yOf(tt), toY: yOf(ft) });
+    });
+  }
+  if (!lifts.length) return;
+  await tween(dur, (p) => lifts.forEach(({ mesh, fromY, toY }) => { mesh.position.y = fromY + (toY - fromY) * easeInOutCubic(p); }));
+  snap(fromBoard, false);
+}
+
 async function animateGravitySettle(fromBoard, toBoard) {
   const moves = [];
   for (let col = 0; col < 8; col++) {
@@ -856,6 +873,32 @@ async function animPlayFlip(beforeBoard, afterBoard, dur) {
   snap(afterBoard, false);
 }
 
+// ---- 戻す: 直前の手を逆再生する（落ちた箱は上がり、回した段・返したかごは逆に回る） ----
+async function animUndo(beforeBoard, afterBoard, move, dur) {
+  clearGhost();
+  snap(afterBoard, false);
+  if (move.type === 'drop') {
+    const tier = [0, 1, 2].find((t) => beforeBoard[G.idx(move.col, t)] === G.EMPTY);
+    const mesh = boxes[G.idx(move.col, tier)];
+    if (!mesh) return;
+    const fromY = mesh.position.y, toY = FRAME_R + 1.1;
+    await tween(dur, (p) => { mesh.position.y = fromY + (toY - fromY) * easeInOutCubic(p); });
+  } else if (move.type === 'rotate') {
+    const rotated = G.rotateBoard(beforeBoard, move.tier, move.dir);
+    await animateGravityUnsettle(rotated, afterBoard, dur);
+    await animRotatePhysical(rotated, { ...move, dir: -move.dir }, dur, false);
+  } else {
+    const flipped = G.flipBoard(beforeBoard);
+    await animateGravityUnsettle(flipped, afterBoard, dur);
+    snap(beforeBoard, false); // 返した盤は、元の盤を 180° 回した見た目と同じ。そこから逆に回して戻す
+    cageGroup.quaternion.setFromAxisAngle(X_AXIS, Math.PI);
+    const flipEase = reduced.matches ? easeInOutCubic : easeInOutBack;
+    await tween(dur, (p) => { cageGroup.quaternion.setFromAxisAngle(X_AXIS, Math.PI * (1 - flipEase(p))); });
+    cageGroup.quaternion.identity();
+  }
+  snap(beforeBoard, false);
+}
+
 // ==========================================================================
 // ---- 対局 ----
 // ==========================================================================
@@ -864,6 +907,7 @@ let pendingFlip = false;  // 「返す」の確認中か
 let busy = false;
 let animToken = 0;        // 進行中のアニメを無効にするための合いことば
 let lastSnapshot = null;  // 「戻る」用に、直前の commit の前の game を 1 手分だけ持っておく
+let lastMove = null;      // その手（逆再生に使う）
 let handDrag = null;      // 手持ちの箱をドラッグ中の状態 { color, pointerId, el, ghost, hoverCol }
 
 function loadGame() {
@@ -997,20 +1041,28 @@ $('cancel').addEventListener('click', () => {
 });
 
 // ---- 戻る（直前の 1 手だけ取り消す） ----
-$('undo').addEventListener('click', () => {
+$('undo').addEventListener('click', async () => {
   if (busy || !lastSnapshot || !game || game.over) return;
-  game = lastSnapshot;
+  if (!confirm('直前の 1 手を取り消しますか？')) return;
+  const before = lastSnapshot, after = game;
   lastSnapshot = null;
   pendingFlip = false;
   resetScenePreview();
-  persist();
+  busy = true;
+  render();
   Sound.select();
+  await animUndo(before.board, after.board, lastMove, reduced.matches ? 70 : 320);
+  game = before;
+  highlightTier(null);
+  persist();
+  busy = false;
   render();
 });
 
 async function commit(move) {
   const before = game;
   lastSnapshot = structuredClone(before); // 「戻る」用。1 手分だけでよい
+  lastMove = move;
   busy = true;
   render();
   const afterState = G.applyMove(before, move);
