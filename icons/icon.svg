@@ -1,53 +1,34 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="100" fill="#101626"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#16182B"/>
 
-  <!-- diagonal glow behind the winning line -->
-  <line x1="128" y1="384" x2="424" y2="128" stroke="#f2b632" stroke-width="40" stroke-linecap="round" opacity="0.28"/>
-
-  <!-- lower two tiers of the cage (not shifted) -->
-  <rect x="64" y="192" width="384" height="256" rx="20" fill="none" stroke="#d8c49a" stroke-width="13"/>
-  <line x1="192" y1="192" x2="192" y2="448" stroke="#d8c49a" stroke-width="9"/>
-  <line x1="320" y1="192" x2="320" y2="448" stroke="#d8c49a" stroke-width="9"/>
-  <line x1="64" y1="320" x2="448" y2="320" stroke="#d8c49a" stroke-width="9"/>
-
-  <!-- top tier, turned (shifted right, kept inside the rounded corner) -->
-  <rect x="104" y="64" width="384" height="128" rx="20" fill="none" stroke="#d8c49a" stroke-width="13"/>
-  <line x1="232" y1="64" x2="232" y2="192" stroke="#d8c49a" stroke-width="9"/>
-  <line x1="360" y1="64" x2="360" y2="192" stroke="#d8c49a" stroke-width="9"/>
-
-  <!-- cubes: bottom row -->
-  <g transform="translate(78,334)">
-    <rect width="100" height="100" rx="20" fill="#f2b632" stroke="#00000026" stroke-width="3"/>
-    <path d="M50,22 L76,78 L24,78 Z" fill="#ffffff" opacity="0.85"/>
-  </g>
-  <g transform="translate(206,334)">
-    <rect width="100" height="100" rx="20" fill="#5ab0e8" stroke="#00000026" stroke-width="3"/>
-    <rect x="39" y="18" width="22" height="64" rx="7" fill="#ffffff" opacity="0.85"/>
-    <rect x="18" y="39" width="64" height="22" rx="7" fill="#ffffff" opacity="0.85"/>
-  </g>
-  <g transform="translate(334,334)">
-    <rect width="100" height="100" rx="20" fill="#f07a5a" stroke="#00000026" stroke-width="3"/>
-    <circle cx="50" cy="50" r="27" fill="#ffffff" opacity="0.85"/>
+  <!-- うすい点の格子 -->
+  <g fill="#F4EEE1" opacity="0.14">
+    <circle cx="64" cy="64" r="7"/><circle cx="192" cy="64" r="7"/><circle cx="320" cy="64" r="7"/><circle cx="448" cy="64" r="7"/><circle cx="576" cy="64" r="7"/><circle cx="704" cy="64" r="7"/><circle cx="832" cy="64" r="7"/><circle cx="960" cy="64" r="7"/>
+    <circle cx="64" cy="192" r="7"/><circle cx="192" cy="192" r="7"/><circle cx="320" cy="192" r="7"/><circle cx="448" cy="192" r="7"/><circle cx="576" cy="192" r="7"/><circle cx="704" cy="192" r="7"/><circle cx="832" cy="192" r="7"/><circle cx="960" cy="192" r="7"/>
+    <circle cx="64" cy="320" r="7"/><circle cx="192" cy="320" r="7"/><circle cx="320" cy="320" r="7"/><circle cx="448" cy="320" r="7"/><circle cx="576" cy="320" r="7"/><circle cx="704" cy="320" r="7"/><circle cx="832" cy="320" r="7"/><circle cx="960" cy="320" r="7"/>
+    <circle cx="64" cy="448" r="7"/><circle cx="192" cy="448" r="7"/><circle cx="320" cy="448" r="7"/><circle cx="448" cy="448" r="7"/><circle cx="576" cy="448" r="7"/><circle cx="704" cy="448" r="7"/><circle cx="832" cy="448" r="7"/><circle cx="960" cy="448" r="7"/>
+    <circle cx="64" cy="576" r="7"/><circle cx="192" cy="576" r="7"/><circle cx="320" cy="576" r="7"/><circle cx="448" cy="576" r="7"/><circle cx="576" cy="576" r="7"/><circle cx="704" cy="576" r="7"/><circle cx="832" cy="576" r="7"/><circle cx="960" cy="576" r="7"/>
+    <circle cx="64" cy="704" r="7"/><circle cx="192" cy="704" r="7"/><circle cx="320" cy="704" r="7"/><circle cx="448" cy="704" r="7"/><circle cx="576" cy="704" r="7"/><circle cx="704" cy="704" r="7"/><circle cx="832" cy="704" r="7"/><circle cx="960" cy="704" r="7"/>
+    <circle cx="64" cy="832" r="7"/><circle cx="192" cy="832" r="7"/><circle cx="320" cy="832" r="7"/><circle cx="448" cy="832" r="7"/><circle cx="576" cy="832" r="7"/><circle cx="704" cy="832" r="7"/><circle cx="832" cy="832" r="7"/><circle cx="960" cy="832" r="7"/>
+    <circle cx="64" cy="960" r="7"/><circle cx="192" cy="960" r="7"/><circle cx="320" cy="960" r="7"/><circle cx="448" cy="960" r="7"/><circle cx="576" cy="960" r="7"/><circle cx="704" cy="960" r="7"/><circle cx="832" cy="960" r="7"/><circle cx="960" cy="960" r="7"/>
   </g>
 
-  <!-- cubes: middle row -->
-  <g transform="translate(206,206)">
-    <rect width="100" height="100" rx="20" fill="#f2b632" stroke="#00000026" stroke-width="3"/>
-    <path d="M50,22 L76,78 L24,78 Z" fill="#ffffff" opacity="0.85"/>
-  </g>
-  <g transform="translate(334,206)">
-    <rect width="100" height="100" rx="20" fill="#9b86e0" stroke="#00000026" stroke-width="3"/>
-    <path d="M50,18 L59,42 L82,50 L59,58 L50,82 L41,58 L18,50 L41,42 Z" fill="#ffffff" opacity="0.85"/>
-  </g>
+  <!-- 角から広がる大きな四分円（同心） -->
+  <path d="M0 0H480A480 480 0 0 1 0 480z" fill="#F2B632"/>
+  <path d="M0 0H300A300 300 0 0 1 0 300z" fill="#E4573D"/>
 
-  <!-- cubes: top row (turned) -->
-  <g transform="translate(246,78)">
-    <rect width="100" height="100" rx="20" fill="#5ab0e8" stroke="#00000026" stroke-width="3"/>
-    <rect x="39" y="18" width="22" height="64" rx="7" fill="#ffffff" opacity="0.85"/>
-    <rect x="18" y="39" width="64" height="22" rx="7" fill="#ffffff" opacity="0.85"/>
-  </g>
-  <g transform="translate(374,78)">
-    <rect width="100" height="100" rx="20" fill="#f2b632" stroke="#00000026" stroke-width="3"/>
-    <path d="M50,22 L76,78 L24,78 Z" fill="#ffffff" opacity="0.85"/>
-  </g>
+  <!-- かご：生成りの大きな面 -->
+  <rect x="200" y="220" width="624" height="624" rx="56" fill="#F4EEE1"/>
+
+  <!-- そろえた 2 つの箱（大きな色面。記号なし） -->
+  <rect x="232" y="656" width="196" height="196" rx="32" fill="#2F57E0"/>
+  <rect x="420" y="468" width="196" height="196" rx="32" fill="#F2B632"/>
+
+  <!-- 落ちてくる箱（面のまま。落下は塗りの三角で示す） -->
+  <path d="M608 336 H784 L696 444z" fill="#E4573D"/>
+  <rect x="608" y="140" width="176" height="176" rx="28" fill="#E4573D"/>
+
+  <!-- 回す矢印：太い四分円の帯＋三角の矢じり -->
+  <path d="M900 800A100 100 0 0 1 800 900" fill="none" stroke="#1E9E6A" stroke-width="72"/>
+  <path d="M726 862 L800 900 L792 814z" fill="#1E9E6A"/>
 </svg>
