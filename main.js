@@ -172,6 +172,10 @@ demoCage();
 
 const offsetOf = (col) => { const [x, z] = COL_XZ[col]; return [x - 1, z - 1]; };
 const yOf = (tier) => tier - 1;
+// かごの枠の半径（中心から面まで）。マスの間隔（1）の 1.5 倍で、3 マス分ぴったりの立方体になる。
+// 枠・軸・入口の目印・当たり判定・見た目のフィットは、すべてこの 1 つの値と offsetOf/yOf から作る。
+const FRAME_R = 1.5;
+const cornerOf = (col) => { const [x, z] = offsetOf(col); return [x * FRAME_R, z * FRAME_R]; };
 const easeOutCubic = (t) => 1 - (1 - t) ** 3;
 const easeInOutCubic = (t) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
@@ -192,9 +196,13 @@ const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 50);
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.9));
 scene.add(new THREE.HemisphereLight(0x8fa0d8, 0x0a0e18, 0.5));
-const keyLight = new THREE.DirectionalLight(0xfff1d6, 1.2);
+const keyLight = new THREE.DirectionalLight(0xfff1d6, 1.35);
 keyLight.position.set(2.3, 4.2, 2.6);
 scene.add(keyLight);
+// 反対側からの弱い青みの光。金属の枠に陰影の差が出て、立体感と「照り」が出る。
+const fillLight = new THREE.DirectionalLight(0x9fb6ff, 0.45);
+fillLight.position.set(-3, 1.2, -2.4);
+scene.add(fillLight);
 
 function shadowBlobTexture() {
   const W = 256, cv = document.createElement('canvas');
@@ -209,11 +217,11 @@ function shadowBlobTexture() {
   return new THREE.CanvasTexture(cv);
 }
 const ground = new THREE.Mesh(
-  new THREE.CircleGeometry(2.3, 28),
+  new THREE.CircleGeometry(FRAME_R * 1.7, 28),
   new THREE.MeshBasicMaterial({ map: shadowBlobTexture(), transparent: true, depthWrite: false }),
 );
 ground.rotation.x = -Math.PI / 2;
-ground.position.y = -1.66;
+ground.position.y = -FRAME_R - 0.05;
 scene.add(ground);
 
 const cageGroup = new THREE.Group();
@@ -226,28 +234,32 @@ scene.add(cageGroup);
 
 // ---- かごの枠（真鍮色）と、少し透ける側面 ----
 const BRASS = 0xd8c49a;
-const postMat = new THREE.MeshStandardMaterial({ color: BRASS, metalness: 0.6, roughness: 0.35 });
-const axisMat = new THREE.MeshStandardMaterial({ color: 0xc2a876, metalness: 0.55, roughness: 0.4 });
+// 金属らしい照りを出すため metalness を高めにし、roughness を低めにして反射を強くする。
+const postMat = new THREE.MeshStandardMaterial({ color: BRASS, metalness: 0.78, roughness: 0.28 });
+const axisMat = new THREE.MeshStandardMaterial({ color: 0xc2a876, metalness: 0.72, roughness: 0.32 });
 
 function edgeBetween(a, b, radius, material) {
   const start = new THREE.Vector3(...a), end = new THREE.Vector3(...b);
   const dir = new THREE.Vector3().subVectors(end, start);
   const len = dir.length();
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 8), material);
+  // radialSegments を増やして、金属のハイライトが丸く滑らかに乗るようにする
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 16), material);
   m.position.copy(start).addScaledVector(dir, 0.5);
   m.quaternion.setFromUnitVectors(Y_AXIS, dir.clone().normalize());
   return m;
 }
 
 function buildFrame() {
-  const Y0 = -1.62, Y1 = 1.62;
-  const offs = COL_XZ.map((_, col) => offsetOf(col));
-  for (const [x, z] of offs) frameGroup.add(edgeBetween([x, Y0, z], [x, Y1, z], 0.045, postMat));
-  frameGroup.add(edgeBetween([0, Y0, 0], [0, Y1, 0], 0.11, axisMat)); // ふさがっている中心の軸
+  // かごはちょうど 3×3×3 マスの立方体（±FRAME_R）。枠の柱もこの範囲にきっちり収め、
+  // 軸だけ突き出て見えないようにする。
+  const Y0 = -FRAME_R, Y1 = FRAME_R;
+  const offs = COL_XZ.map((_, col) => cornerOf(col));
+  for (const [x, z] of offs) frameGroup.add(edgeBetween([x, Y0, z], [x, Y1, z], 0.07, postMat));
+  frameGroup.add(edgeBetween([0, Y0, 0], [0, Y1, 0], 0.14, axisMat)); // ふさがっている中心の軸
   for (const y of [-1.5, -0.5, 0.5, 1.5]) {
     for (let i = 0; i < 8; i++) {
       const [x1, z1] = offs[i], [x2, z2] = offs[(i + 1) % 8];
-      frameGroup.add(edgeBetween([x1, y, z1], [x2, y, z2], 0.03, postMat));
+      frameGroup.add(edgeBetween([x1, y, z1], [x2, y, z2], 0.05, postMat));
     }
   }
   // 側面をふさぐ 1 枚のガラス箱（内側だけ描く BackSide）。4 枚の板を別々に置くと、斜めから
@@ -255,13 +267,14 @@ function buildFrame() {
   const panelMat = new THREE.MeshBasicMaterial({
     color: BRASS, transparent: true, opacity: 0.05, depthWrite: false, side: THREE.BackSide,
   });
-  panelGroup.add(new THREE.Mesh(new THREE.BoxGeometry(2.05, 3.24, 2.05), panelMat));
+  const panelSize = FRAME_R * 2 + 0.1;
+  panelGroup.add(new THREE.Mesh(new THREE.BoxGeometry(panelSize, panelSize, panelSize), panelMat));
 }
 buildFrame();
 
 // ---- 段を選んでいるときの光る帯 ----
 const tierHighlightMat = new THREE.MeshBasicMaterial({ color: 0xffcf6b, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false });
-const tierHighlightMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 0.86, 24, 1, true), tierHighlightMat);
+const tierHighlightMesh = new THREE.Mesh(new THREE.CylinderGeometry(FRAME_R * 1.28, FRAME_R * 1.28, 0.86, 24, 1, true), tierHighlightMat);
 tierHighlightMesh.visible = false;
 cageGroup.add(tierHighlightMesh);
 function highlightTier(tier) {
@@ -292,7 +305,7 @@ function buildMarkers() {
   for (let col = 0; col < 8; col++) {
     const [x, z] = offsetOf(col);
     const m = new THREE.Mesh(markerGeo, markerMatOff);
-    m.position.set(x, 1.95, z);
+    m.position.set(x, FRAME_R + 0.2, z);
     m.rotation.x = -Math.PI / 2;
     m.visible = false;
     m.userData = { col, enabled: false };
@@ -338,7 +351,26 @@ function cubeMaterial(color, ghost) {
   cubeMatCache.set(key, m);
   return m;
 }
-const cubeGeo = new THREE.BoxGeometry(0.82, 0.82, 0.82);
+// 角を少し丸めた箱（RoundedBoxGeometry 相当を自前で作る）。BoxGeometry を細かく分割し、
+// 角・辺に近い頂点だけを中心方向へ丸めることで、面ごとの陰影がはっきり付くようにする。
+function roundedBoxGeometry(size, radius, segments) {
+  const geo = new THREE.BoxGeometry(size, size, size, segments, segments, segments);
+  const half = size / 2, inner = half - radius;
+  const pos = geo.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const cx = THREE.MathUtils.clamp(v.x, -inner, inner);
+    const cy = THREE.MathUtils.clamp(v.y, -inner, inner);
+    const cz = THREE.MathUtils.clamp(v.z, -inner, inner);
+    const dx = v.x - cx, dy = v.y - cy, dz = v.z - cz;
+    const len = Math.hypot(dx, dy, dz);
+    if (len > 1e-6) pos.setXYZ(i, cx + (dx / len) * radius, cy + (dy / len) * radius, cz + (dz / len) * radius);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+const cubeGeo = roundedBoxGeometry(0.82, 0.12, 4);
 function makeCube(color, ghost) {
   return new THREE.Mesh(cubeGeo, cubeMaterial(color, ghost));
 }
@@ -411,8 +443,9 @@ function frame(now) {
 }
 
 // ---- 視点（空いた所をドラッグで、かごの周りを回って見る） ----
-const HOME = { theta: 0.7, phi: 1.05 };
-const PHI_MIN = 0.55, PHI_MAX = 1.32;
+// phi は真上からの角度。小さいほど見下ろす。初めは 3 段の側面と上の面がどちらも見える角度にする。
+const HOME = { theta: 0.7, phi: 0.92 };
+const PHI_MIN = 0.5, PHI_MAX = 1.32;
 let orbit = { ...HOME };
 let fitRadius = 6;
 function updateCamera() {
@@ -433,7 +466,9 @@ function fitView() {
   const vHalf = (camera.fov * Math.PI) / 360;
   const hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
   const half = Math.min(vHalf, hHalf);
-  fitRadius = (2.3 / Math.sin(half)) * 1.2;
+  // かごの水平方向の半径（対角）を基準に、画面の 8 割くらいまで大きく見せる
+  const boundRadius = FRAME_R * Math.SQRT2;
+  fitRadius = (boundRadius / Math.sin(half)) * 1.25;
   camera.near = fitRadius / 10;
   camera.far = fitRadius * 4;
   kick();
@@ -553,7 +588,7 @@ async function animPlayDrop(beforeBoard, move, dur) {
   if (tier == null) return;
   const mesh = makeCube(move.color, false);
   const [x, , z] = cellPos(move.col, tier);
-  const fromY = 2.6, toY = yOf(tier);
+  const fromY = FRAME_R + 1.1, toY = yOf(tier);
   mesh.position.set(x, fromY, z);
   cubesGroup.add(mesh);
   boxes[G.idx(move.col, tier)] = mesh;
