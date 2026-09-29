@@ -35,16 +35,12 @@ function buildLines() {
   return lines; // 27(軸) + 18(面の斜め) + 4(立体の対角線) = 49 本
 }
 
-// 手持ちの割り当て。24 マスと違い 27 は人数×色数できれいに割れないので、
-// 人ごと・色ごとにできるだけ均等に配る（余りは先頭から 1 個ずつ多く持つ）。
+// 手持ちは公式と同じ 24 個（人数でも色数でも割り切れて、全員が同じ数を持つ）。27 マスのうち 3 マスは空いたまま
+const HAND_TOTAL = 24;
 function initHand(players) {
   const groups = PLAYER_COLORS[players];
-  const per = Math.floor(TOTAL / players), rem = TOTAL % players;
-  return groups.map((colors, p) => {
-    const total = per + (p < rem ? 1 : 0);
-    const base = Math.floor(total / colors.length), extra = total % colors.length;
-    return Object.fromEntries(colors.map((c, i) => [c, base + (i < extra ? 1 : 0)]));
-  });
+  const n = HAND_TOTAL / players / groups[0].length;
+  return groups.map((colors) => Object.fromEntries(colors.map((c) => [c, n])));
 }
 
 export function newBoard() { return new Array(TOTAL).fill(EMPTY); }

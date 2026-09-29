@@ -281,15 +281,12 @@ console.log('エクストラ 真ん中・立体対角線の勝ち: ok');
 }
 console.log('エクストラ 戻す手の禁止: ok');
 
-// ---- 色・手持ちの割り当て（27 マスは人数×色できれいに割れないので、できるだけ均等に） ----
+// ---- 色・手持ちの割り当て（公式と同じ 24 個。全員・全色が同じ数） ----
 for (const players of [2, 3, 4]) {
   const g = E.newGame(players, () => 0);
-  const total = g.hand.reduce((s, h) => s + Object.values(h).reduce((a, b) => a + b, 0), 0);
-  assert.equal(total, E.TOTAL, `合計 27 個にならない（${players} 人）`);
-  g.hand.forEach((h) => {
-    const vals = Object.values(h);
-    assert.ok(Math.max(...vals) - Math.min(...vals) <= 1, '色ごとの数が均等でない');
-  });
+  const counts = g.hand.flatMap((h) => Object.values(h));
+  assert.equal(counts.reduce((a, b) => a + b, 0), 24, `合計 24 個にならない（${players} 人）`);
+  assert.ok(counts.every((n) => n === counts[0]), '人・色ごとの数がそろっていない');
 }
 console.log('エクストラ 色・手持ちの割り当て: ok');
 
