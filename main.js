@@ -296,6 +296,7 @@ scene.add(cageGroup);
 // ---- かごの枠（墨色のフラットな面）と、少し透ける側面 ----
 const BRASS = 0x16182b; // 変数名は据え置き。かごの枠の色（墨）
 const postMat = new THREE.MeshLambertMaterial({ color: BRASS });
+const coreMat = new THREE.MeshLambertMaterial({ color: 0xcfc6b0 }); // 真ん中の列（台と同じ生成り色。墨の枠が見えるように）
 
 function edgeBetween(a, b, radius, material) {
   const start = new THREE.Vector3(...a), end = new THREE.Vector3(...b);
@@ -336,7 +337,7 @@ function cellWire(x, y, z) {
 function buildFrame() {
   // 段ごとに 3×3 マスの枠を持つ（ルービックキューブのように、回す段はその段の枠ごと回る）
   for (let t = 0; t < 3; t++) for (const x of [-1, 0, 1]) for (const z of [-1, 0, 1]) tierFrames[t].add(cellWire(x, yOf(t), z));
-  frameGroup.add(new THREE.Mesh(new THREE.BoxGeometry(1, FRAME_R * 2, 1), postMat)); // ふさがっている真ん中の列（枠と同じ色の直方体。回らない）
+  frameGroup.add(new THREE.Mesh(new THREE.BoxGeometry(1, FRAME_R * 2, 1), coreMat)); // ふさがっている真ん中の列（直方体。回らない）
   // 側面をふさぐ 1 枚のガラス箱（内側だけ描く BackSide）。4 枚の板を別々に置くと、斜めから
   // 見たときに板どうしが重なって格子状のちらつきが出たので、継ぎ目のない 1 個の箱にした。
   // フレネル風のシェーダーで、面を正面から見ると透け、縁（視線が斜めになる場所）ほど明るくする。
