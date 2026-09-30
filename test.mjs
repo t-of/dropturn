@@ -417,8 +417,8 @@ console.log('すべて合格（エクストラルール）');
   }
   console.log('CPU: engine の合法手が game.js と一致（乱数対局 2000 局）: ok');
 
-  // ---- CPU（3 段階すべて）が常に合法手を返すか ----
-  for (const level of ['easy', 'normal', 'strong']) {
+  // ---- CPU が常に合法手を返すか ----
+  for (const level of ['strong']) {
     let g = newGame(2, () => 0);
     for (let i = 0; i < 6 && !g.over; i++) {
       const pos = E.fromAppState(g);
@@ -428,7 +428,7 @@ console.log('すべて合格（エクストラルール）');
       g = applyMove(g, move);
     }
   }
-  console.log('CPU: 3 段階とも合法手を返す: ok');
+  console.log('CPU: 合法手を返す: ok');
 
   // ---- 観戦（CPU どうし）が 200 手以内に終わるか。スーパーコウで「一度出た形」自体が禁止なので、
   // 引き延ばし対策がなくても終わらないループは原理上起きない。念のため上限つきで確かめる ----
@@ -447,4 +447,21 @@ console.log('すべて合格（エクストラルール）');
   }
   console.log('CPU: 観戦シミュレーションが 200 手以内に終わる: ok');
 }
+
+// ---- エクストラの CPU（cpu/extra.mjs）: 合法手を返し、1 手で勝てるなら勝つ ----
+{
+  const { pickMove } = await import('./cpu/extra.mjs');
+  let g = E.newGame(2, () => 0);
+  for (let i = 0; i < 6 && !g.over; i++) {
+    const move = pickMove(g, 200);
+    assert.ok(E.isLegal(g, move), `エクストラの CPU の手が合法手でない（${i} 手目）: ${JSON.stringify(move)}`);
+    g = E.applyMove(g, move);
+  }
+  // 先手（色 0）が (0,0,0)・(1,0,0) に置いてある。(2,0,0) に色 0 を落とせば勝ち
+  let w = E.newGame(2, () => 0);
+  w = { ...w, board: E.drop(E.drop(w.board, 0, 0, 0), 1, 0, 0), hand: [{ 0: 1, 1: 3, 2: 3, 6: 3 }, w.hand[1]] };
+  const m = pickMove(w, 500);
+  assert.ok(E.applyMove(w, m).winner === 0, `1 手で勝てるのに勝たない: ${JSON.stringify(m)}`);
+}
+console.log('エクストラの CPU: ok');
 console.log('すべて合格（CPU）');

@@ -54,8 +54,6 @@ const playerColors = (g) => (g.rules === 'extra' ? GE.PLAYER_COLORS : G.PLAYER_C
 const COL_XZ = [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2], [1, 2], [0, 2], [0, 1]];
 const playerName = (p) => `プレイヤー ${p + 1}`;
 const BANNED_MOVE_MSG = '一度出たかごの形に戻す手は指せません（かごごと回した形も同じとみなす）';
-const CPU_LEVELS = ['easy', 'normal', 'strong'];
-const LEVEL_LABEL = { easy: 'やさしい', normal: 'ふつう', strong: '強い' };
 const SPECTATE_DELAY = { slow: 1500, normal: 700, fast: 200 };
 
 // ---- 設定・記録 ----
@@ -68,13 +66,8 @@ function loadSettings() {
     rules: s.rules === 'extra' ? 'extra' : 'official',
     cpu: {
       seat: ['first', 'second', 'random'].includes(s.cpu?.seat) ? s.cpu.seat : 'random',
-      level: CPU_LEVELS.includes(s.cpu?.level) ? s.cpu.level : 'normal',
     },
     spectate: {
-      levels: [
-        CPU_LEVELS.includes(s.spectate?.levels?.[0]) ? s.spectate.levels[0] : 'normal',
-        CPU_LEVELS.includes(s.spectate?.levels?.[1]) ? s.spectate.levels[1] : 'normal',
-      ],
       speed: ['slow', 'normal', 'fast'].includes(s.spectate?.speed) ? s.spectate.speed : 'normal',
     },
   };
@@ -92,10 +85,6 @@ document.querySelectorAll('[data-rules]').forEach((b) => b.addEventListener('cli
 }));
 function renderRules() {
   document.querySelectorAll('[data-rules]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.rules === settings.rules)));
-  // CPU・観戦は公式ルール・2 人だけ（エクストラでは出さない）
-  const official = settings.rules !== 'extra';
-  $('cpu-open').hidden = !official;
-  $('spectate-open').hidden = !official;
 }
 renderRules();
 
@@ -1325,24 +1314,24 @@ function persist() {
 }
 
 // ---- CPU 戦・観戦 ----
-// game.cpu = { seat: 0 か 1（CPU がどちらの番か）, level }。game.spectate = { levels: [先手, 後手] }。
+// game.cpu = { seat: 0 か 1（CPU がどちらの番か） }。game.spectate = {}（両方 CPU）。
 // game.js の applyMove は state を { ...state, ... } で作るので、この余分なフィールドも手ごとに引き継がれる。
 let cpuThinking = false;
 let cpuToken = 0;         // タイトルへ戻る・やり直す等で、古い CPU の返事を無視するための合いことば
 let cpuWorker = null;
 let cpuReqSeq = 0;
 let spectatePaused = false;
-const cpuLevelAt = (g, p) => (g.spectate ? g.spectate.levels[p] : g.cpu && g.cpu.seat === p ? g.cpu.level : null);
-const humansTurn = () => !game || cpuLevelAt(game, game.turn) == null;
+const cpuAt = (g, p) => !!g.spectate || (!!g.cpu && g.cpu.seat === p);
+const humansTurn = () => !game || !cpuAt(game, game.turn);
 const seatName = (p) => {
-  const level = game && cpuLevelAt(game, p);
-  return level ? `CPU（${LEVEL_LABEL[level]}）` : playerName(p);
+  if (!game || !cpuAt(game, p)) return playerName(p);
+  return game.spectate ? `CPU ${p + 1}` : 'CPU';
 };
 function getCpuWorker() {
   if (!cpuWorker) cpuWorker = new Worker('./cpu/worker.js', { type: 'module' });
   return cpuWorker;
 }
-function requestCpuMove(state, level) {
+function requestCpuMove(state) {
   return new Promise((resolve) => {
     const reqId = ++cpuReqSeq;
     const worker = getCpuWorker();
@@ -1352,22 +1341,21 @@ function requestCpuMove(state, level) {
       resolve(e.data.move);
     };
     worker.addEventListener('message', onMsg);
-    worker.postMessage({ state, level, reqId });
+    worker.postMessage({ state, reqId });
   });
 }
 async function maybeCpuTurn() {
   if (!game || game.over) return;
-  const level = cpuLevelAt(game, game.turn);
-  if (level == null) return;
+  if (!cpuAt(game, game.turn)) return;
   if (game.spectate && spectatePaused) return;
   const token = ++cpuToken;
   cpuThinking = true;
   render();
-  const move = await requestCpuMove(game, level);
+  const move = await requestCpuMove(game);
   if (token !== cpuToken) return; // タイトルへ戻る・やり直す等で古くなった
   cpuThinking = false;
-  if (!game || game.over || cpuLevelAt(game, game.turn) == null) { render(); return; }
-  if (!G.isLegal(game, move)) { render(); return; } // 保険（本来は起きない）
+  if (!game || game.over || !cpuAt(game, game.turn)) { render(); return; }
+  if (!move || !(MODE === 'extra' ? GE : G).isLegal(game, move)) { render(); return; } // 保険（本来は起きない）
   if (game.spectate) {
     render(); // 「考え中」を消してから待つ
     await wait(SPECTATE_DELAY[settings.spectate.speed]);
@@ -1601,12 +1589,12 @@ async function commitExtra(move) {
   else if (move.type === 'tilt') { Sound.rotate(); await animTiltExtra(before.board, move, dur); }
   else { Sound.flip(); await animFlipExtra(before.board, afterState.board, dur); }
   snapExtra(afterState.board, false);
-  game = afterState;
+  game = capSpectateMoves(afterState);
   pendingTilt = false;
   highlightTier(null);
   persist();
   busy = false;
-  if (game.over) finish(before); else render();
+  if (game.over) finish(before); else { render(); maybeCpuTurn(); }
 }
 
 // ---- 画面の描画（文字・ボタン。かごの中身はここでは書き換えない） ----
@@ -1724,24 +1712,25 @@ function startGame(players) {
   enterGame();
 }
 
-// CPU 戦は必ず公式ルール・2 人。player0 が先手になるよう rng を固定し、settings.cpu.seat に合わせて
+// CPU 戦はタイトルで選んだルールの 2 人。player0 が先手になるよう rng を固定し、settings.cpu.seat に合わせて
 // どちらが CPU かを決める（'random' はここでくじを引く）。
+const newTwoPlayerGame = () => (MODE === 'extra' ? GE : G).newGame(2, () => 0);
 function startCpuGame() {
-  MODE = 'official';
-  const { seat, level } = settings.cpu;
+  MODE = settings.rules;
+  const { seat } = settings.cpu;
   const humanFirst = seat === 'random' ? Math.random() < 0.5 : seat === 'first';
-  game = { ...G.newGame(2, () => 0), cpu: { seat: humanFirst ? 1 : 0, level } };
+  game = { ...newTwoPlayerGame(), cpu: { seat: humanFirst ? 1 : 0 } };
   resetPlayState();
   persist();
   enterGame();
   maybeCpuTurn();
 }
 
-// 観戦（CPU どうし）は公式ルール・2 人。途中保存はしない（persist が game.spectate を見て自分でよける）
+// 観戦（CPU どうし）はタイトルで選んだルールの 2 人。途中保存はしない（persist が game.spectate を見て自分でよける）
 function startSpectateGame() {
-  MODE = 'official';
+  MODE = settings.rules;
   spectatePaused = false;
-  game = { ...G.newGame(2, () => 0), spectate: { levels: [...settings.spectate.levels] } };
+  game = { ...newTwoPlayerGame(), spectate: {} };
   resetPlayState();
   enterGame();
   maybeCpuTurn();
@@ -1775,16 +1764,9 @@ document.querySelectorAll('[data-players]').forEach((b) => b.addEventListener('c
 
 function renderCpuSetup() {
   document.querySelectorAll('[data-cpu-seat]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.cpuSeat === settings.cpu.seat)));
-  document.querySelectorAll('[data-cpu-level]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.cpuLevel === settings.cpu.level)));
 }
 document.querySelectorAll('[data-cpu-seat]').forEach((b) => b.addEventListener('click', () => {
   settings = { ...settings, cpu: { ...settings.cpu, seat: b.dataset.cpuSeat } };
-  save('settings', settings);
-  Sound.select();
-  renderCpuSetup();
-}));
-document.querySelectorAll('[data-cpu-level]').forEach((b) => b.addEventListener('click', () => {
-  settings = { ...settings, cpu: { ...settings.cpu, level: b.dataset.cpuLevel } };
   save('settings', settings);
   Sound.select();
   renderCpuSetup();
@@ -1801,24 +1783,7 @@ $('cpu-start').addEventListener('click', () => {
   }
 });
 
-function renderSpectateSetup() {
-  document.querySelectorAll('[data-spectate-level]').forEach((b) => {
-    const [p, level] = b.dataset.spectateLevel.split('-');
-    b.setAttribute('aria-pressed', String(settings.spectate.levels[+p] === level));
-  });
-}
-document.querySelectorAll('[data-spectate-level]').forEach((b) => b.addEventListener('click', () => {
-  const [p, level] = b.dataset.spectateLevel.split('-');
-  const levels = [...settings.spectate.levels];
-  levels[+p] = level;
-  settings = { ...settings, spectate: { ...settings.spectate, levels } };
-  save('settings', settings);
-  Sound.select();
-  renderSpectateSetup();
-}));
-$('spectate-open').addEventListener('click', () => { renderSpectateSetup(); $('spectate-setup').showModal(); });
-$('spectate-start').addEventListener('click', () => {
-  $('spectate-setup').close();
+$('spectate-open').addEventListener('click', () => {
   if (!settings.seenHelp) {
     settings = { ...settings, seenHelp: true };
     save('settings', settings);

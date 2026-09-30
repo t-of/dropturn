@@ -125,7 +125,7 @@
       </div>
     </section>
 
-    <!-- ---- CPU と対戦: 手番と強さを選ぶ ---- -->
+    <!-- ---- CPU と対戦: 手番を選ぶ ---- -->
     <dialog class="help cpu-setup" id="cpu-setup">
       <h2>CPU と対戦</h2>
       <p class="setup__label">手番</p>
@@ -134,31 +134,7 @@
         <button class="pill" data-cpu-seat="second">後手</button>
         <button class="pill" data-cpu-seat="random">おまかせ（くじ）</button>
       </div>
-      <p class="setup__label">強さ</p>
-      <div class="setup__group" role="radiogroup" aria-label="強さ">
-        <button class="pill" data-cpu-level="easy">やさしい</button>
-        <button class="pill" data-cpu-level="normal">ふつう</button>
-        <button class="pill" data-cpu-level="strong">強い</button>
-      </div>
       <button class="btn btn--main" id="cpu-start">はじめる</button>
-    </dialog>
-
-    <!-- ---- 観戦: 先手・後手それぞれの強さを選ぶ ---- -->
-    <dialog class="help cpu-setup" id="spectate-setup">
-      <h2>観戦</h2>
-      <p class="setup__label">先手の強さ</p>
-      <div class="setup__group" role="radiogroup" aria-label="先手の強さ">
-        <button class="pill" data-spectate-level="0-easy">やさしい</button>
-        <button class="pill" data-spectate-level="0-normal">ふつう</button>
-        <button class="pill" data-spectate-level="0-strong">強い</button>
-      </div>
-      <p class="setup__label">後手の強さ</p>
-      <div class="setup__group" role="radiogroup" aria-label="後手の強さ">
-        <button class="pill" data-spectate-level="1-easy">やさしい</button>
-        <button class="pill" data-spectate-level="1-normal">ふつう</button>
-        <button class="pill" data-spectate-level="1-strong">強い</button>
-      </div>
-      <button class="btn btn--main" id="spectate-start">はじめる</button>
     </dialog>
 
     <!-- ---- 遊び方 ---- -->
@@ -170,7 +146,7 @@
         <li><b>返す</b>: 「返す」→ 確認して、かご全体を上下にひっくり返す。</li>
       </ol>
       <p class="help__note">どれか 1 つで手番を終える。どの面でも同じ色を縦・横・斜めに 3 つ並べたら勝ち。一度出たかごの形（かごごと回しただけの形も同じ）に戻す手は指せない。「↺」で直前の 1 手だけ取り消せる（確認のあと、逆再生で戻る。CPU 戦では人と CPU の 2 手分）。</p>
-      <p class="help__note">タイトルの「CPU と対戦」で、2 人のうち 1 人を CPU にできる（手番・強さを選べる）。「観戦」なら両方が CPU で、勝手に対局が進む。CPU は DROPTURN の研究で作った AI。どちらも公式ルール・2 人のときだけ選べる。</p>
+      <p class="help__note">タイトルの「CPU と対戦」で、2 人のうち 1 人を CPU にできる（手番を選べる）。「観戦」なら両方が CPU で、勝手に対局が進む。公式でもエクストラでも選べる（2 人）。</p>
       <h2>エクストラルール</h2>
       <ol>
         <li>軸がなく、3×3×3 = 27 マスすべてに箱が入る。落とす入口は上面の 9 列すべて。</li>
