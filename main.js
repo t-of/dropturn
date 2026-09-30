@@ -49,7 +49,10 @@ const COLOR_META = [
 // 列 k(0-7) の (x, z) 位置（3×3 の外周。中心は軸でふさがっている）
 const COL_XZ = [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2], [1, 2], [0, 2], [0, 1]];
 const playerName = (p) => `プレイヤー ${p + 1}`;
-const BANNED_MOVE_MSG = '1 手前に戻る手、または何も変わらない手は指せません（かごごと回した形も同じとみなす）';
+const BANNED_MOVE_MSG = '一度出たかごの形に戻す手は指せません（かごごと回した形も同じとみなす）';
+const CPU_LEVELS = ['easy', 'normal', 'strong'];
+const LEVEL_LABEL = { easy: 'やさしい', normal: 'ふつう', strong: '強い' };
+const SPECTATE_DELAY = { slow: 1500, normal: 700, fast: 200 };
 
 // ---- 設定・記録 ----
 function loadSettings() {
@@ -59,6 +62,17 @@ function loadSettings() {
     sound: typeof s.sound === 'boolean' ? s.sound : true,
     seenHelp: s.seenHelp === true,
     rules: s.rules === 'extra' ? 'extra' : 'official',
+    cpu: {
+      seat: ['first', 'second', 'random'].includes(s.cpu?.seat) ? s.cpu.seat : 'random',
+      level: CPU_LEVELS.includes(s.cpu?.level) ? s.cpu.level : 'normal',
+    },
+    spectate: {
+      levels: [
+        CPU_LEVELS.includes(s.spectate?.levels?.[0]) ? s.spectate.levels[0] : 'normal',
+        CPU_LEVELS.includes(s.spectate?.levels?.[1]) ? s.spectate.levels[1] : 'normal',
+      ],
+      speed: ['slow', 'normal', 'fast'].includes(s.spectate?.speed) ? s.spectate.speed : 'normal',
+    },
   };
 }
 let settings = loadSettings();
@@ -74,6 +88,10 @@ document.querySelectorAll('[data-rules]').forEach((b) => b.addEventListener('cli
 }));
 function renderRules() {
   document.querySelectorAll('[data-rules]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.rules === settings.rules)));
+  // CPU・観戦は公式ルール・2 人だけ（エクストラでは出さない）
+  const official = settings.rules !== 'extra';
+  $('cpu-open').hidden = !official;
+  $('spectate-open').hidden = !official;
 }
 renderRules();
 
@@ -808,7 +826,7 @@ sceneCanvas.addEventListener('pointerdown', (e) => {
     return;
   }
   let hit = null;
-  if (!busy && game && !game.over && !handDrag && !pendingFlip) {
+  if (!busy && !cpuThinking && game && !game.over && !handDrag && !pendingFlip && humansTurn()) {
     const tier = pickTier(e.clientX, e.clientY);
     if (tier != null) { hit = { tier }; highlightTier(tier); }
   }
@@ -1259,17 +1277,69 @@ let pendingFlip = false;  // 「返す」の確認中か（公式）
 let pendingTilt = false; // 「倒す」の方向えらび中か（エクストラ）
 let busy = false;
 let animToken = 0;        // 進行中のアニメを無効にするための合いことば
-let lastSnapshot = null;  // 「戻る」用に、直前の commit の前の game を 1 手分だけ持っておく
-let lastMove = null;      // その手（逆再生に使う）
+let history = [];         // 「戻る」用の履歴。{ game, move } を commit のたびに積む
 let handDrag = null;      // 手持ちの箱をドラッグ中の状態 { color, pointerId, el, ghost, hoverEntry }
 
 function loadGame() {
   const g = load('game', null);
   if (!g || g.over || !G.PLAYER_COLORS[g.players]) return null;
-  return g;
+  return G.migrateSeen(g); // 古い保存データ（seen を持たない）を引き継ぐ
 }
 function persist() {
-  if (game && !game.over) save('game', game); else clear('game');
+  // 観戦は誰の対局でもないので保存しない
+  if (game && !game.over && !game.spectate) save('game', game); else if (!game || game.over) clear('game');
+}
+
+// ---- CPU 戦・観戦 ----
+// game.cpu = { seat: 0 か 1（CPU がどちらの番か）, level }。game.spectate = { levels: [先手, 後手] }。
+// game.js の applyMove は state を { ...state, ... } で作るので、この余分なフィールドも手ごとに引き継がれる。
+let cpuThinking = false;
+let cpuToken = 0;         // タイトルへ戻る・やり直す等で、古い CPU の返事を無視するための合いことば
+let cpuWorker = null;
+let cpuReqSeq = 0;
+let spectatePaused = false;
+const cpuLevelAt = (g, p) => (g.spectate ? g.spectate.levels[p] : g.cpu && g.cpu.seat === p ? g.cpu.level : null);
+const humansTurn = () => !game || cpuLevelAt(game, game.turn) == null;
+const seatName = (p) => {
+  const level = game && cpuLevelAt(game, p);
+  return level ? `CPU（${LEVEL_LABEL[level]}）` : playerName(p);
+};
+function getCpuWorker() {
+  if (!cpuWorker) cpuWorker = new Worker('./cpu/worker.js', { type: 'module' });
+  return cpuWorker;
+}
+function requestCpuMove(state, level) {
+  return new Promise((resolve) => {
+    const reqId = ++cpuReqSeq;
+    const worker = getCpuWorker();
+    const onMsg = (e) => {
+      if (e.data.reqId !== reqId) return;
+      worker.removeEventListener('message', onMsg);
+      resolve(e.data.move);
+    };
+    worker.addEventListener('message', onMsg);
+    worker.postMessage({ state, level, reqId });
+  });
+}
+async function maybeCpuTurn() {
+  if (!game || game.over) return;
+  const level = cpuLevelAt(game, game.turn);
+  if (level == null) return;
+  if (game.spectate && spectatePaused) return;
+  const token = ++cpuToken;
+  cpuThinking = true;
+  render();
+  const move = await requestCpuMove(game, level);
+  if (token !== cpuToken) return; // タイトルへ戻る・やり直す等で古くなった
+  cpuThinking = false;
+  if (!game || game.over || cpuLevelAt(game, game.turn) == null) { render(); return; }
+  if (!G.isLegal(game, move)) { render(); return; } // 保険（本来は起きない）
+  if (game.spectate) {
+    render(); // 「考え中」を消してから待つ
+    await wait(SPECTATE_DELAY[settings.spectate.speed]);
+    if (token !== cpuToken || spectatePaused) { render(); return; }
+  }
+  commit(move);
 }
 
 function resetScenePreview() {
@@ -1298,7 +1368,7 @@ function renderHand() {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'colorbtn';
-    b.disabled = n <= 0 || busy;
+    b.disabled = n <= 0 || busy || cpuThinking || !humansTurn();
     b.style.setProperty('--c', COLOR_META[color].hex);
     b.innerHTML = `<span class="colorbtn__n">${n}</span>`;
     b.addEventListener('pointerdown', (e) => startHandDrag(e, b, color));
@@ -1307,7 +1377,7 @@ function renderHand() {
 }
 
 function startHandDrag(e, el, color) {
-  if (busy || !game || game.over || handDrag) return;
+  if (busy || cpuThinking || !game || game.over || handDrag || !humansTurn()) return;
   e.preventDefault();
   if (pendingFlip) { pendingFlip = false; render(); }
   if (pendingTilt) { pendingTilt = false; render(); }
@@ -1394,7 +1464,7 @@ function returnGhostHome(ghost, el) {
 // ---- 返す・倒す（確認・方向えらびをしてから） ----
 $('actions').addEventListener('click', (e) => {
   const b = e.target.closest('[data-act="flip"]');
-  if (!b || busy || pendingFlip || pendingTilt) return;
+  if (!b || busy || cpuThinking || !humansTurn() || pendingFlip || pendingTilt) return;
   if (MODE === 'extra') {
     pendingTilt = true;
     $('notice').textContent = '';
@@ -1410,7 +1480,7 @@ $('actions').addEventListener('click', (e) => {
   render();
 });
 $('decide').addEventListener('click', () => {
-  if (!pendingFlip || busy) return;
+  if (!pendingFlip || busy || cpuThinking) return;
   pendingFlip = false;
   commit({ type: 'flip' });
 });
@@ -1429,12 +1499,13 @@ $('tilt-choices').addEventListener('click', (e) => {
   render();
 });
 
-// ---- 戻る（直前の 1 手だけ取り消す） ----
+// ---- 戻る（直前の 1 手だけ取り消す。CPU 戦では人と CPU の 2 手分まとめて） ----
 $('undo').addEventListener('click', async () => {
-  if (busy || !lastSnapshot || !game || game.over) return;
+  if (busy || cpuThinking || !history.length || !game || game.over) return;
   if (!confirm('直前の 1 手を取り消しますか？')) return;
-  const before = lastSnapshot, after = game;
-  lastSnapshot = null;
+  const steps = Math.min(game.cpu ? 2 : 1, history.length);
+  const popped = history.splice(history.length - steps, steps);
+  const before = popped[0].game, after = game, lastMove = popped[popped.length - 1].move;
   pendingFlip = false;
   pendingTilt = false;
   resetScenePreview();
@@ -1449,13 +1520,13 @@ $('undo').addEventListener('click', async () => {
   persist();
   busy = false;
   render();
+  maybeCpuTurn(); // 戻した先が CPU の番なら、また考えさせる
 });
 
 async function commit(move) {
   if (MODE === 'extra') return commitExtra(move);
   const before = game;
-  lastSnapshot = structuredClone(before); // 「戻る」用。1 手分だけでよい
-  lastMove = move;
+  history.push({ game: structuredClone(before), move }); // 「戻る」用の履歴に積む
   busy = true;
   render();
   const afterState = G.applyMove(before, move);
@@ -1466,18 +1537,25 @@ async function commit(move) {
   else if (move.type === 'rotate') { Sound.rotate(); await animRotatePhysical(before.board, move, dur, false); }
   else { Sound.flip(); await animPlayFlip(before.board, afterState.board, dur); }
   snap(afterState.board, false); // アニメの内部で見た目がずれても、確定時に必ず作り直す
-  game = afterState;
+  game = capSpectateMoves(afterState);
   pendingFlip = false;
   highlightTier(null);
   persist();
   busy = false;
-  if (game.over) finish(before); else render();
+  if (game.over) finish(before); else { render(); maybeCpuTurn(); }
+}
+
+// 観戦は 200 手で決着しなければ「引き分け（手数の上限）」として終える（人が指す対局の規則は変えない）
+function capSpectateMoves(state) {
+  if (state.spectate && !state.over && state.moves >= 200) {
+    return { ...state, over: true, draw: true, drawReason: 'limit', winner: null };
+  }
+  return state;
 }
 
 async function commitExtra(move) {
   const before = game;
-  lastSnapshot = structuredClone(before);
-  lastMove = move;
+  history.push({ game: structuredClone(before), move });
   busy = true;
   render();
   const afterState = GE.applyMove(before, move);
@@ -1502,7 +1580,7 @@ function render() {
   if (!game) return;
   const moverColors = G.PLAYER_COLORS[game.players][game.turn];
 
-  $('turn-text').textContent = game.over ? '' : `${playerName(game.turn)} の番`;
+  $('turn-text').textContent = game.over ? '' : `${seatName(game.turn)}${cpuThinking ? ' 考え中…' : ' の番'}`;
   if (!game.over) {
     const hex = COLOR_META[moverColors[0]].hex;
     $('game').style.setProperty('--pc', hex);
@@ -1516,9 +1594,12 @@ function render() {
   updateTiltFaces();
 
   $('actions').hidden = game.over; // 結果カードの左右から操作ボタンがのぞかないように
-  $('actions').querySelectorAll('[data-act]').forEach((b) => { b.disabled = busy || pendingFlip || pendingTilt; });
+  $('actions').querySelectorAll('[data-act]').forEach((b) => { b.disabled = busy || cpuThinking || !humansTurn() || pendingFlip || pendingTilt; });
 
-  $('undo').disabled = busy || !lastSnapshot || game.over;
+  $('undo').disabled = busy || cpuThinking || !history.length || game.over;
+
+  $('spectate-bar').hidden = !game.spectate || game.over;
+  if (game.spectate) renderSpectateBar();
 
   if (game.afterEmpty != null && !game.over) {
     $('notice').textContent = `あと ${game.afterEmpty} 手で引き分け`;
@@ -1529,6 +1610,10 @@ function render() {
   }
 
   updateMarkers();
+}
+function renderSpectateBar() {
+  $('spectate-pause').textContent = spectatePaused ? '再開' : '一時停止';
+  document.querySelectorAll('[data-speed]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.speed === settings.spectate.speed)));
 }
 
 // ---- 結果 ----
@@ -1549,15 +1634,17 @@ function finish(before) {
       const owner = game.winner;
       const colors = G.PLAYER_COLORS[game.players][owner];
       const hex = COLOR_META[colors[0]].hex;
-      $('result-head').textContent = `${playerName(owner)} の勝ち`;
+      $('result-head').textContent = `${seatName(owner)} の勝ち`;
       $('result-head').style.color = hex;
       $('game').style.setProperty('--pc', hex);
       setPlayerGlow(hex);
       Sound.win();
     }
     $('result-moves').textContent = `${game.moves} 手`;
+    $('share-result').hidden = !!game.spectate; // 観戦は誰の記録でもないので共有しない
+    $('again').textContent = game.spectate ? 'もう一回観戦' : 'もう一回';
     r.hidden = false;
-    const buttons = r.querySelectorAll('button');
+    const buttons = r.querySelectorAll('button:not([hidden])');
     buttons.forEach((b) => { b.disabled = true; });
     setTimeout(() => buttons.forEach((b) => { b.disabled = false; }), 400);
     render();
@@ -1571,7 +1658,7 @@ function shareText() {
   if (game.draw) return `DROPTURN（${game.players} 人）で ${game.moves} 手の末に引き分け`;
   const owner = game.winner;
   const colors = G.PLAYER_COLORS[game.players][owner];
-  return `DROPTURN（${game.players} 人）で ${COLOR_META[colors[0]].mark} ${playerName(owner)} が ${game.moves} 手で勝った！`;
+  return `DROPTURN（${game.players} 人）で ${COLOR_META[colors[0]].mark} ${seatName(owner)} が ${game.moves} 手で勝った！`;
 }
 $('share-result').addEventListener('click', () => WebAppKit.share({ text: shareText() }));
 
@@ -1598,13 +1685,48 @@ function enterGame() {
 function startGame(players) {
   MODE = settings.rules; // タイトルで選んだルールに決める（対局中は変わらない）
   game = MODE === 'extra' ? GE.newGame(players) : G.newGame(players);
-  pendingFlip = false;
-  pendingTilt = false;
-  lastSnapshot = null;
-  busy = false;
-  $('result').hidden = true;
+  resetPlayState();
   persist();
   enterGame();
+}
+
+// CPU 戦は必ず公式ルール・2 人。player0 が先手になるよう rng を固定し、settings.cpu.seat に合わせて
+// どちらが CPU かを決める（'random' はここでくじを引く）。
+function startCpuGame() {
+  MODE = 'official';
+  const { seat, level } = settings.cpu;
+  const humanFirst = seat === 'random' ? Math.random() < 0.5 : seat === 'first';
+  game = { ...G.newGame(2, () => 0), cpu: { seat: humanFirst ? 1 : 0, level } };
+  resetPlayState();
+  persist();
+  enterGame();
+  maybeCpuTurn();
+}
+
+// 観戦（CPU どうし）は公式ルール・2 人。途中保存はしない（persist が game.spectate を見て自分でよける）
+function startSpectateGame() {
+  MODE = 'official';
+  spectatePaused = false;
+  game = { ...G.newGame(2, () => 0), spectate: { levels: [...settings.spectate.levels] } };
+  resetPlayState();
+  enterGame();
+  maybeCpuTurn();
+}
+
+function restartCurrentGame() {
+  if (game.spectate) startSpectateGame();
+  else if (game.cpu) startCpuGame();
+  else startGame(game.players);
+}
+
+// 新しい対局を始めるときの共通の後始末（CPU の考え中を無効にする・確認モードを閉じる・履歴を空にする）
+function resetPlayState() {
+  cpuToken++; cpuThinking = false;
+  pendingFlip = false;
+  pendingTilt = false;
+  history = [];
+  busy = false;
+  $('result').hidden = true;
 }
 
 document.querySelectorAll('[data-players]').forEach((b) => b.addEventListener('click', () => {
@@ -1617,19 +1739,85 @@ document.querySelectorAll('[data-players]').forEach((b) => b.addEventListener('c
   }
 }));
 
+function renderCpuSetup() {
+  document.querySelectorAll('[data-cpu-seat]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.cpuSeat === settings.cpu.seat)));
+  document.querySelectorAll('[data-cpu-level]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.cpuLevel === settings.cpu.level)));
+}
+document.querySelectorAll('[data-cpu-seat]').forEach((b) => b.addEventListener('click', () => {
+  settings = { ...settings, cpu: { ...settings.cpu, seat: b.dataset.cpuSeat } };
+  save('settings', settings);
+  Sound.select();
+  renderCpuSetup();
+}));
+document.querySelectorAll('[data-cpu-level]').forEach((b) => b.addEventListener('click', () => {
+  settings = { ...settings, cpu: { ...settings.cpu, level: b.dataset.cpuLevel } };
+  save('settings', settings);
+  Sound.select();
+  renderCpuSetup();
+}));
+$('cpu-open').addEventListener('click', () => { renderCpuSetup(); $('cpu-setup').showModal(); });
+$('cpu-start').addEventListener('click', () => {
+  $('cpu-setup').close();
+  if (!settings.seenHelp) {
+    settings = { ...settings, seenHelp: true };
+    save('settings', settings);
+    openHelp(() => startCpuGame());
+  } else {
+    startCpuGame();
+  }
+});
+
+function renderSpectateSetup() {
+  document.querySelectorAll('[data-spectate-level]').forEach((b) => {
+    const [p, level] = b.dataset.spectateLevel.split('-');
+    b.setAttribute('aria-pressed', String(settings.spectate.levels[+p] === level));
+  });
+}
+document.querySelectorAll('[data-spectate-level]').forEach((b) => b.addEventListener('click', () => {
+  const [p, level] = b.dataset.spectateLevel.split('-');
+  const levels = [...settings.spectate.levels];
+  levels[+p] = level;
+  settings = { ...settings, spectate: { ...settings.spectate, levels } };
+  save('settings', settings);
+  Sound.select();
+  renderSpectateSetup();
+}));
+$('spectate-open').addEventListener('click', () => { renderSpectateSetup(); $('spectate-setup').showModal(); });
+$('spectate-start').addEventListener('click', () => {
+  $('spectate-setup').close();
+  if (!settings.seenHelp) {
+    settings = { ...settings, seenHelp: true };
+    save('settings', settings);
+    openHelp(() => startSpectateGame());
+  } else {
+    startSpectateGame();
+  }
+});
+
+// ---- 観戦中の操作（一時停止・速さ） ----
+$('spectate-pause').addEventListener('click', () => {
+  spectatePaused = !spectatePaused;
+  render();
+  if (!spectatePaused) maybeCpuTurn();
+});
+document.querySelectorAll('[data-speed]').forEach((b) => b.addEventListener('click', () => {
+  settings = { ...settings, spectate: { ...settings.spectate, speed: b.dataset.speed } };
+  save('settings', settings);
+  renderSpectateBar();
+}));
+
 $('resume').addEventListener('click', () => {
   const g = loadGame();
   if (!g) return;
   MODE = g.rules === 'extra' ? 'extra' : 'official'; // 保存された対局のルールのまま続ける
   game = g;
-  pendingFlip = false;
-  pendingTilt = false;
-  lastSnapshot = null;
-  busy = false;
+  resetPlayState();
   enterGame();
+  maybeCpuTurn();
 });
 
 function toTitle() {
+  cpuToken++; cpuThinking = false;
   game = null;
   animToken++;
   winPulsing = false;
@@ -1642,7 +1830,7 @@ function renderTitle() {
   $('resume').hidden = !g;
 }
 
-$('again').addEventListener('click', () => startGame(game.players));
+$('again').addEventListener('click', () => restartCurrentGame());
 $('to-title').addEventListener('click', toTitle);
 
 // ---- 遊び方・メニュー ----
@@ -1663,7 +1851,7 @@ $('menu-title').addEventListener('click', () => {
 });
 $('menu-restart').addEventListener('click', () => {
   menu.close();
-  if (game.moves === 0 || confirm('最初からやり直しますか？')) startGame(game.players);
+  if (game.moves === 0 || confirm('最初からやり直しますか？')) restartCurrentGame();
 });
 
 renderTitle();

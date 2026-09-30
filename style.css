@@ -239,20 +239,29 @@ button { font: inherit; color: inherit; }
 .result__buttons { position: relative; display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 8px; margin-top: 14px; }
 .result__buttons .btn { padding: 0 6px; white-space: nowrap; }
 
-/* ---- 遊び方・メニュー ---- */
-.help, .menu {
+/* ---- 遊び方・メニュー・CPU 対戦/観戦の設定 ---- */
+.help, .menu, .cpu-setup {
   width: min(440px, calc(100% - 24px)); max-height: calc(100dvh - 48px);
   padding: 20px; border: 2px solid var(--ink); border-radius: 0;
   background: var(--surface);
   color: var(--fg); line-height: 1.65; font-size: 15px;
 }
-.help::backdrop, .menu::backdrop { background: rgba(0, 0, 0, 0.6); }
-.help h2, .menu h2 { margin: 0 0 10px; font-size: 20px; color: var(--vermilion); }
+.help::backdrop, .menu::backdrop, .cpu-setup::backdrop { background: rgba(0, 0, 0, 0.6); }
+.help h2, .menu h2, .cpu-setup h2 { margin: 0 0 10px; font-size: 20px; color: var(--vermilion); }
 .help ol { margin: 0; padding-left: 1.3em; }
 .help li + li { margin-top: 4px; }
 .help__note { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
 .help .btn { width: 100%; margin-top: 16px; }
 .menu__buttons { display: grid; gap: 8px; margin-top: 8px; }
+
+.setup__label { margin: 14px 0 6px; font-size: 12px; color: var(--muted); }
+.setup__label:first-of-type { margin-top: 0; }
+.setup__group { display: flex; flex-wrap: wrap; gap: 8px; }
+.setup__group .pill[aria-pressed="true"] { background: var(--ink); color: var(--cream); }
+.cpu-setup .btn { width: 100%; margin-top: 18px; }
+
+/* ---- 観戦中の操作（一時停止・速さ） ---- */
+.spectate-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
 
 @media (prefers-reduced-motion: reduce) {
   .btn, .pill, .icon-btn, .act, .colorbtn,

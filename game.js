@@ -92,17 +92,27 @@ export function newGame(players, rng = Math.random) {
     v: 1, rules: 'official', players, first, turn: first,
     board: newBoard(),
     hand: initHand(players),
-    prev: null,          // 1 手前（直前の手より前）の盤。戻す手の判定に使う
+    seen: [newBoard()],  // 最後に「落とす」を指したあとに出た盤の一覧（それを戻す手の禁止に使う）
     afterEmpty: null,    // 全員の手持ちがなくなってからの残り手数。null は未突入
     moves: 0,
     over: false, winner: null, draw: false, drawReason: null, winLines: [],
   };
 }
 
+// 古い保存データ（seen を持たない）を読んだときの引き継ぎ。あった prev・board から履歴を始める。
+export function migrateSeen(g) {
+  if (Array.isArray(g.seen)) return g;
+  const seen = [];
+  if (g.prev) seen.push(g.prev);
+  seen.push(g.board);
+  return { ...g, seen };
+}
+
 const handEmpty = (h) => Object.values(h).every((v) => v === 0);
 
 // かご全体を 90° ずつ回しただけの違いは同じ局面とみなす（下の段と上の段を同じ向きに回す＝真ん中を逆に回す、など）
-function sameUpToTurn(a, b) {
+// CPU（cpu/cpu.mjs）の引き延ばし対策も、実際の盤で同じ判定を使うためこれを import する。
+export function sameUpToTurn(a, b) {
   let x = a;
   for (let k = 0; k < 4; k++) {
     if (boardsEqual(x, b)) return true;
@@ -111,11 +121,11 @@ function sameUpToTurn(a, b) {
   return false;
 }
 
-// その手を指したら「何も変わらない」か「1 手前の局面に戻る」ことになるか
+// その手を指したら、この対局ですでに出た盤（かごごと回した形も同じとみなす）に戻ることになるか。
+// 「落とす」は箱の数が増えて他と一致しえないので、seen は最後に落としたあとの盤から数えれば足りる
+// （state.seen。同じ理由で「何も変わらない」「1 手前に戻る」もこれに含まれる）。
 function isBanned(state, candidate) {
-  if (sameUpToTurn(candidate, state.board)) return true;
-  if (state.prev && sameUpToTurn(candidate, state.prev)) return true;
-  return false;
+  return state.seen.some((b) => sameUpToTurn(candidate, b));
 }
 
 export function previewBoard(state, move) {
@@ -189,6 +199,7 @@ export function applyMove(state, move) {
   const result = judgeBoard(board, state.players, mover);
   let over = false, winner = null, draw = false, drawReason = null, winLines = [];
   let afterEmpty = state.afterEmpty;
+  const seen = move.type === 'drop' ? [board] : [...state.seen, board];
 
   if (result) {
     over = true; winLines = result.lines;
@@ -200,17 +211,21 @@ export function applyMove(state, move) {
     afterEmpty = 12;
   }
 
-  let next = { ...state, board, hand, prev: before, moves, over, winner, draw, drawReason, winLines, afterEmpty, turn: mover };
-  if (!over) next.turn = nextTurn(next, mover);
+  let next = { ...state, board, hand, seen, moves, over, winner, draw, drawReason, winLines, afterEmpty, turn: mover };
+  if (!over) {
+    const t = nextTurn(next, mover);
+    if (t === null) next = { ...next, over: true, draw: true, drawReason: 'stuck', winner: null };
+    else next.turn = t;
+  }
   return next;
 }
 
-// 指せる手がない人は飛ばす（まず起きない。全員だめなら保険でそのまま進める）
+// 指せる手がない人は飛ばす。全員だめなら引き分け（drawReason: 'stuck'。null を返す）
 function nextTurn(state, mover) {
   let p = (mover + 1) % state.players;
   for (let i = 0; i < state.players; i++) {
     if (legalMoves({ ...state, turn: p }).length > 0) return p;
     p = (p + 1) % state.players;
   }
-  return (mover + 1) % state.players;
+  return null;
 }

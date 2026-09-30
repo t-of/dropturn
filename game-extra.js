@@ -4,8 +4,8 @@
 // マス = idx(x, y, z)。x は左右 0..2、y は上下（重力の向き）0..2、z は前後 0..2。軸はなく、27 マスすべてに箱が入る。
 // 落とす入口は上面の 9 列（x, z の組）すべて。
 
-import { PLAYER_COLORS, colorOwner, boardsEqual } from './game.js';
-export { PLAYER_COLORS, colorOwner, boardsEqual };
+import { PLAYER_COLORS, colorOwner, boardsEqual, migrateSeen } from './game.js';
+export { PLAYER_COLORS, colorOwner, boardsEqual, migrateSeen };
 
 export const EMPTY = -1;
 export const N = 3;
@@ -117,7 +117,7 @@ export function newGame(players, rng = Math.random) {
     v: 1, rules: 'extra', players, first, turn: first,
     board: newBoard(),
     hand: initHand(players),
-    prev: null,
+    seen: [newBoard()],  // 最後に「落とす」を指したあとに出た盤の一覧（それを戻す手の禁止に使う）
     afterEmpty: null,
     moves: 0,
     over: false, winner: null, draw: false, drawReason: null, winLines: [],
@@ -137,9 +137,7 @@ function sameUpToTurn(a, b) {
 }
 
 function isBanned(state, candidate) {
-  if (sameUpToTurn(candidate, state.board)) return true;
-  if (state.prev && sameUpToTurn(candidate, state.prev)) return true;
-  return false;
+  return state.seen.some((b) => sameUpToTurn(candidate, b));
 }
 
 export function previewBoard(state, move) {
@@ -223,6 +221,7 @@ export function applyMove(state, move) {
   const result = judgeBoard(board, state.players, mover);
   let over = false, winner = null, draw = false, drawReason = null, winLines = [];
   let afterEmpty = state.afterEmpty;
+  const seen = move.type === 'drop' ? [board] : [...state.seen, board];
 
   if (result) {
     over = true; winLines = result.lines;
@@ -234,17 +233,21 @@ export function applyMove(state, move) {
     afterEmpty = 12;
   }
 
-  let next = { ...state, board, hand, prev: before, moves, over, winner, draw, drawReason, winLines, afterEmpty, turn: mover };
-  if (!over) next.turn = nextTurn(next, mover);
+  let next = { ...state, board, hand, seen, moves, over, winner, draw, drawReason, winLines, afterEmpty, turn: mover };
+  if (!over) {
+    const t = nextTurn(next, mover);
+    if (t === null) next = { ...next, over: true, draw: true, drawReason: 'stuck', winner: null };
+    else next.turn = t;
+  }
   return next;
 }
 
-// 指せる手がない人は飛ばす（まず起きない。全員だめなら保険でそのまま進める）
+// 指せる手がない人は飛ばす。全員だめなら引き分け（drawReason: 'stuck'。null を返す）
 function nextTurn(state, mover) {
   let p = (mover + 1) % state.players;
   for (let i = 0; i < state.players; i++) {
     if (legalMoves({ ...state, turn: p }).length > 0) return p;
     p = (p + 1) % state.players;
   }
-  return (mover + 1) % state.players;
+  return null;
 }

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {
   EMPTY, idx, LINES, PLAYER_COLORS, newBoard, drop, canDrop, rotateBoard, flipBoard, gravity,
-  boardsEqual, newGame, legalMoves, isLegal, applyMove, judgeBoard, colorOwner,
+  boardsEqual, newGame, legalMoves, isLegal, applyMove, judgeBoard, colorOwner, migrateSeen,
 } from './game.js';
 import * as E from './game-extra.js';
 
@@ -124,7 +124,7 @@ console.log('色・手持ちの割り当て: ok');
   const a = newBoard();
   for (let c = 0; c < 8; c++) a[idx(c, 0)] = c % 3;
   a[idx(0, 1)] = 3;
-  let g = { ...newGame(2, () => 0), board: a };
+  let g = { ...newGame(2, () => 0), board: a, seen: [a] };
   const beforeRotate = g.board;
   g = applyMove(g, { type: 'rotate', tier: 0, dir: 1 }); // P2 が回す
   // P1 が同じ回転を逆に戻す手は禁止
@@ -138,12 +138,53 @@ console.log('色・手持ちの割り当て: ok');
   const a = newBoard();
   for (let c = 0; c < 8; c++) { a[idx(c, 0)] = c % 3; a[idx(c, 1)] = 4 + c % 2; } // 真ん中は 90° 回しても同じ
   a[idx(0, 2)] = 5; a[idx(3, 2)] = 3;
-  let g = { ...newGame(2, () => 0), board: a };
+  let g = { ...newGame(2, () => 0), board: a, seen: [a] };
   g = applyMove(g, { type: 'rotate', tier: 0, dir: 1 });
   assert.equal(isLegal(g, { type: 'rotate', tier: 2, dir: 1 }), false, 'かごごと回した形に戻る手が指せてしまう');
   assert.equal(isLegal(g, { type: 'rotate', tier: 2, dir: -1 }), true, '戻らない手が禁止されている');
 }
 console.log('戻す手の禁止: ok');
+
+// ---- 一度出た形には戻せない（スーパーコウ。1 手前より前の形でも禁止） ----
+{
+  // 実際の対局から見つけた例: 下段を右に 3 回回すと、4 回目は「落とした直後」の形（3 手前）に戻る。
+  // 1 手前ルールだけなら指せてしまうが、履歴（seen）を全部見るスーパーコウでは禁止になる。
+  let g = newGame(2, () => 0);
+  const seq = [
+    { type: 'drop', color: 0, col: 6 }, { type: 'drop', color: 3, col: 3 }, { type: 'drop', color: 2, col: 3 },
+    { type: 'drop', color: 4, col: 7 }, { type: 'drop', color: 2, col: 3 }, { type: 'rotate', tier: 2, dir: 1 },
+    { type: 'drop', color: 0, col: 3 }, { type: 'drop', color: 4, col: 6 }, { type: 'drop', color: 0, col: 2 },
+    { type: 'drop', color: 4, col: 0 }, { type: 'drop', color: 2, col: 1 }, { type: 'drop', color: 5, col: 0 },
+    { type: 'drop', color: 0, col: 1 }, { type: 'drop', color: 4, col: 5 }, { type: 'drop', color: 2, col: 5 },
+    { type: 'drop', color: 3, col: 4 }, { type: 'rotate', tier: 0, dir: 1 }, { type: 'rotate', tier: 0, dir: 1 },
+    { type: 'rotate', tier: 0, dir: 1 },
+  ];
+  for (const move of seq) g = applyMove(g, move);
+  assert.equal(g.seen.length, 4, '落としたあとの履歴の長さが想定と違う');
+  assert.equal(isLegal(g, { type: 'rotate', tier: 0, dir: 1 }), false, '3 手前の形に戻る手が指せてしまう（スーパーコウ）');
+  // 「落とす」を挟むと、落とす前の履歴は要らなくなる
+  const dropMove = legalMoves(g).find((m) => m.type === 'drop');
+  const dropped = applyMove(g, dropMove);
+  assert.deepEqual(dropped.seen, [dropped.board], '落としたあと、履歴が最新の盤 1 つにリセットされていない');
+}
+console.log('スーパーコウ（一度出た形には戻せない）: ok');
+
+// ---- 全員が指せないと引き分け（drawReason: 'stuck'） ----
+{
+  // 手持ちを両者とも 0 にし、盤を「2 列おきに同じ配色」にする（列を 2 つ飛ばす回転を打ち消し合い、
+  // どの段を回しても「何も変わらない」で禁止になる）。「返す」だけがまだ指せるので、それも
+  // seen に足してふさぐと、誰にとっても legalMoves が空になる。
+  const a = newBoard();
+  for (let c = 0; c < 8; c++) for (let t = 0; t < 3; t++) a[idx(c, t)] = (c % 2) * 3 + t;
+  const g0 = { ...newGame(2, () => 0), board: a, seen: [a], hand: [{ 0: 0, 1: 0, 2: 0 }, { 3: 0, 4: 0, 5: 0 }] };
+  assert.deepEqual(legalMoves(g0), [{ type: 'flip' }], 'この盤で「返す」以外が指せてしまう（テストの前提が崩れている）');
+  const g1 = applyMove(g0, { type: 'flip' }); // 返した先の盤はまだ空いていて、次の人（＝もう片方）も同じく手がない
+  assert.equal(legalMoves(g1).length, 0, '返したあと、まだ指せる手が残っている（テストの前提が崩れている）');
+  assert.equal(g1.over, true);
+  assert.equal(g1.draw, true);
+  assert.equal(g1.drawReason, 'stuck');
+}
+console.log('全員だめなら引き分け: ok');
 
 // ---- 引き分け（手持ちがなくなってから 12 手） ----
 {
@@ -156,6 +197,7 @@ console.log('戻す手の禁止: ok');
   let moves;
   do {
     g.board = randomBoard(24);
+    g.seen = [g.board];
     moves = judgeBoard(g.board, 2, g.turn) ? [] : legalMoves(g);
   } while (!moves.length || judgeBoard(applyMove(g, moves[0]).board, 2, g.turn));
   const before = g.board;
@@ -274,7 +316,7 @@ console.log('エクストラ 真ん中・立体対角線の勝ち: ok');
   a[E.idx(0, 0, 1)] = 3; a[E.idx(1, 0, 1)] = 4; a[E.idx(2, 0, 1)] = 0;
   a[E.idx(0, 0, 2)] = 1; a[E.idx(1, 0, 2)] = 2; a[E.idx(2, 0, 2)] = 3;
   a[E.idx(0, 1, 0)] = 5; a[E.idx(1, 1, 0)] = 0; // 上の段も一部埋めて、層だけの回転が全体回転と同じにならないようにする
-  let g = { ...E.newGame(2, () => 0), board: a };
+  let g = { ...E.newGame(2, () => 0), board: a, seen: [a] };
   g = E.applyMove(g, { type: 'rotate', axis: 'y', layer: 0, dir: 1 });
   assert.equal(E.isLegal(g, { type: 'rotate', axis: 'y', layer: 0, dir: -1 }), false, '1 手前へ戻す手が指せてしまう');
   assert.equal(E.isLegal(g, { type: 'rotate', axis: 'y', layer: 2, dir: 1 }), false, '何も変わらない手（空の層）が指せてしまう');
@@ -316,3 +358,79 @@ console.log('エクストラ 色・手持ちの割り当て: ok');
 console.log('エクストラ 面 → 倒す手の対応: ok');
 
 console.log('すべて合格（エクストラルール）');
+
+// ==========================================================================
+// ---- CPU（cpu/engine.mjs・cpu/cpu.mjs）。標準ルール・2 人のみ ----
+// ==========================================================================
+{
+  const { readFileSync } = await import('node:fs');
+  const E = await import('./cpu/engine.mjs');
+  const { pickMove } = await import('./cpu/cpu.mjs');
+  const wbuf = readFileSync(new URL('./cpu/pat.w', import.meta.url));
+  E.loadPatWeights(new Float32Array(wbuf.buffer, wbuf.byteOffset, wbuf.byteLength / 4));
+
+  // ---- 古い保存データ（seen がなく prev だけ）の引き継ぎ ----
+  {
+    const old = { v: 1, players: 2, turn: 0, board: newBoard(), prev: null, hand: [], moves: 0 };
+    const migrated = migrateSeen(old);
+    assert.deepEqual(migrated.seen, [old.board], 'prev がないときの引き継ぎが違う');
+    const old2 = { ...old, prev: newBoard() };
+    const migrated2 = migrateSeen(old2);
+    assert.deepEqual(migrated2.seen, [old2.prev, old2.board], 'prev があるときの引き継ぎが違う');
+    const already = { ...old, seen: [old.board] };
+    assert.strictEqual(migrateSeen(already), already, 'すでに seen がある状態を余計に作り直している');
+  }
+  console.log('CPU: 古い保存データの引き継ぎ: ok');
+
+  // ---- engine の合法手が game.js の legalMoves と一致するか（乱数対局 2000 局、標準ルール 2 人） ----
+  {
+    const moveKey = (m) => `${m.type}|${m.color ?? ''}|${m.col ?? ''}|${m.tier ?? ''}|${m.dir ?? ''}`;
+    for (let gi = 0; gi < 2000; gi++) {
+      let g = newGame(2, Math.random);
+      for (let step = 0; step < 40 && !g.over; step++) {
+        const expected = new Set(legalMoves(g).map(moveKey));
+        const pos = E.fromAppState(g);
+        const mv = new Array(E.NMOVES), ch = new Array(E.NMOVES);
+        const n = E.genMoves(pos, mv, ch);
+        const actual = new Set();
+        for (let i = 0; i < n; i++) actual.add(moveKey(E.toAppMove(pos, mv[i])));
+        assert.equal(actual.size, expected.size, `合法手の数が合わない（対局 ${gi}、${step} 手目）`);
+        for (const k of expected) assert.ok(actual.has(k), `game.js にあって engine にない手（対局 ${gi}、${step} 手目）: ${k}`);
+        const moves = legalMoves(g);
+        g = applyMove(g, moves[Math.floor(Math.random() * moves.length)]);
+      }
+    }
+  }
+  console.log('CPU: engine の合法手が game.js と一致（乱数対局 2000 局）: ok');
+
+  // ---- CPU（3 段階すべて）が常に合法手を返すか ----
+  for (const level of ['easy', 'normal', 'strong']) {
+    let g = newGame(2, () => 0);
+    for (let i = 0; i < 6 && !g.over; i++) {
+      const pos = E.fromAppState(g);
+      const mv = pickMove(pos, level);
+      const move = E.toAppMove(pos, mv);
+      assert.ok(isLegal(g, move), `CPU（${level}）の手が合法手でない（${i} 手目）: ${JSON.stringify(move)}`);
+      g = applyMove(g, move);
+    }
+  }
+  console.log('CPU: 3 段階とも合法手を返す: ok');
+
+  // ---- 観戦（CPU どうし）が 200 手以内に終わるか。スーパーコウで「一度出た形」自体が禁止なので、
+  // 引き延ばし対策がなくても終わらないループは原理上起きない。念のため上限つきで確かめる ----
+  for (let gi = 0; gi < 3; gi++) {
+    let g = newGame(2, Math.random);
+    let moves = 0;
+    while (!g.over && moves < 200) {
+      const pos = E.fromAppState(g);
+      const mv = pickMove(pos, 'normal');
+      const move = E.toAppMove(pos, mv);
+      assert.ok(isLegal(g, move), `観戦シミュレーションで CPU が反則手を選んだ（${moves} 手目）`);
+      g = applyMove(g, move);
+      moves++;
+    }
+    assert.ok(g.over, `観戦シミュレーションが 200 手で終わらない（対局 ${gi}）`);
+  }
+  console.log('CPU: 観戦シミュレーションが 200 手以内に終わる: ok');
+}
+console.log('すべて合格（CPU）');
