@@ -736,19 +736,85 @@ function pickTier(x, y) {
   const local = cageGroup.worldToLocal(hit.point.clone());
   return Math.max(0, Math.min(2, Math.round(local.y + 1)));
 }
-// エクストラルール: タップ・スワイプしたマスの座標（x, y, z）と、そのワールド座標での位置を返す
+// エクストラルール: 指の下にある、かごの外側の面のマス（x, y, z と、その面の向き face・外向き sign）
+const CAGE_BOX = new THREE.Box3(new THREE.Vector3(-FRAME_R, -FRAME_R, -FRAME_R), new THREE.Vector3(FRAME_R, FRAME_R, FRAME_R));
 function pickCellExtra(x, y) {
   raycaster.setFromCamera(ndc(x, y), camera);
-  const targets = [...panelGroup.children, ...boxesE.filter(Boolean)];
-  const hit = raycaster.intersectObjects(targets, true)[0];
-  if (!hit) return null;
-  const local = cageGroup.worldToLocal(hit.point.clone());
-  const cell = (v) => Math.max(0, Math.min(2, Math.round(v + 1)));
-  // 触った面の向き（かごの座標で x・y・z のどれか）。その面の上でのスワイプで回せる軸は残りの 2 本
-  const n = cageGroup.worldToLocal(hit.point.clone().add(hit.face.normal.clone().transformDirection(hit.object.matrixWorld))).sub(local);
-  const a = [Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)];
+  const ray = raycaster.ray.clone().applyMatrix4(cageGroup.matrixWorld.clone().invert());
+  const p = ray.intersectBox(CAGE_BOX, new THREE.Vector3());
+  if (!p) return null;
+  const a = [Math.abs(p.x), Math.abs(p.y), Math.abs(p.z)];
   const face = 'xyz'[a.indexOf(Math.max(...a))];
-  return { x: cell(local.x), y: cell(local.y), z: cell(local.z), point: hit.point.clone(), face };
+  const cell = (v) => Math.max(0, Math.min(2, Math.floor(v + FRAME_R)));
+  return { x: cell(p.x), y: cell(p.y), z: cell(p.z), face, sign: Math.sign(p[face]) };
+}
+
+// ---- エクストラルール「回す」: マスを長押しすると出る矢印ボタン ----
+// 矢印は、その向きの隣のマスの、押したマスとの境目の辺に接して小さく出す。
+// 隣が無い（面の端）ときは、押したマス自身の、その辺に接して出す。
+const ARROW_SIZE = 0.34;
+const LONG_PRESS_MS = 380;
+function arrowTexture() {
+  const W = 128, cv = document.createElement('canvas');
+  cv.width = cv.height = W;
+  const x = cv.getContext('2d');
+  x.fillStyle = '#16182b';
+  x.beginPath(); x.arc(W / 2, W / 2, W * 0.46, 0, Math.PI * 2); x.fill();
+  x.fillStyle = '#f2b632';
+  x.beginPath(); x.moveTo(W * 0.78, W / 2); x.lineTo(W * 0.36, W * 0.24); x.lineTo(W * 0.36, W * 0.76); x.closePath(); x.fill();
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const arrowTex = arrowTexture();
+const arrowGeo = new THREE.PlaneGeometry(ARROW_SIZE, ARROW_SIZE);
+const arrowGroup = new THREE.Group();
+cageGroup.add(arrowGroup);
+let arrowHover = null;
+function setArrowHover(mesh) {
+  if (arrowHover === mesh) return;
+  if (arrowHover) arrowHover.scale.setScalar(1);
+  arrowHover = mesh;
+  if (arrowHover) arrowHover.scale.setScalar(1.35);
+  kick();
+}
+function clearArrows() {
+  arrowHover = null;
+  for (const m of [...arrowGroup.children]) { m.material.dispose(); m.removeFromParent(); }
+  kick();
+}
+function showArrows(hit) {
+  clearArrows();
+  const { face, sign } = hit;
+  const n = new THREE.Vector3(); n[face] = sign;
+  const center = new THREE.Vector3(...extraCellPos(hit.x, hit.y, hit.z));
+  center[face] = sign * (FRAME_R + 0.03); // 面の上に少し浮かせる
+  for (const u of 'xyz') {
+    if (u === face) continue;
+    const w = 'xyz'.replace(face, '').replace(u, ''); // 回す軸（面にも矢印の向きにも垂直）
+    for (const s of [1, -1]) {
+      const d = new THREE.Vector3(); d[u] = s;
+      const hasNeighbor = hit[u] + s >= 0 && hit[u] + s <= 2;
+      // 辺に接する位置: 隣のマスの内側、または自分のマスの内側
+      const pos = center.clone().addScaledVector(d, hasNeighbor ? 0.5 + ARROW_SIZE / 2 : 0.5 - ARROW_SIZE / 2);
+      // 回す向き: 軸 w まわりの正の回転でこのマスが d へ動くなら正（endDragExtra と同じ SLICE_ANGLE_SIGN）
+      const wv = new THREE.Vector3(); wv[w] = 1;
+      const physical = Math.sign(new THREE.Vector3().crossVectors(wv, center).dot(d)) || 1;
+      const mat = new THREE.MeshBasicMaterial({ map: arrowTex, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+      const m = new THREE.Mesh(arrowGeo, mat);
+      m.renderOrder = 10;
+      m.position.copy(pos);
+      m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(d, new THREE.Vector3().crossVectors(n, d), n));
+      m.userData.move = { type: 'rotate', axis: w, layer: hit[w], dir: physical * SLICE_ANGLE_SIGN[w] };
+      arrowGroup.add(m);
+    }
+  }
+  kick();
+}
+function pickArrow(x, y) {
+  if (!arrowGroup.children.length) return null;
+  raycaster.setFromCamera(ndc(x, y), camera);
+  return raycaster.intersectObjects(arrowGroup.children, false)[0]?.object ?? null;
 }
 
 // エクストラルール「倒す」の方向えらび中、タップ・カーソルの下にある面（下にできる 5 面のどれか）
@@ -790,7 +856,17 @@ sceneCanvas.addEventListener('pointerdown', (e) => {
       if (pendingTilt) faceHit = pickFaceTilt(e.clientX, e.clientY);
       else hit = pickCellExtra(e.clientX, e.clientY);
     }
-    dragState = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, hit, faceHit, moved: false };
+    dragState = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, hit, faceHit, moved: false, arrows: false };
+    if (hit) {
+      const ds = dragState;
+      ds.timer = setTimeout(() => {
+        if (dragState !== ds || ds.moved || busy) return;
+        ds.arrows = true;
+        showArrows(hit);
+        Sound.select();
+        navigator.vibrate?.(12);
+      }, LONG_PRESS_MS);
+    }
     kick();
     return;
   }
@@ -810,43 +886,25 @@ sceneCanvas.addEventListener('pointermove', (e) => {
     dragState.moved = true;
     if (dragState.hit && MODE !== 'extra') highlightTier(null); // 動いたら視点回転に切り替え、光は消す
   }
-  // エクストラルールでは、かごの上で始めたドラッグはスワイプ（回す）として離したときにまとめて判定する。
-  // 視点を回すのは、空いた所で始めたドラッグだけ（公式と同じ）。
-  if (MODE === 'extra' && dragState.hit) return;
+  // エクストラルールでは、矢印が出ていれば指の下の矢印を選ぶだけ。出る前に動かせば視点を回す。
+  if (MODE === 'extra' && dragState.arrows) { setArrowHover(pickArrow(e.clientX, e.clientY)); return; }
   if ((!dragState.hit && !dragState.faceHit) || dragState.moved) {
     orbit.theta -= dx * 0.008;
     orbit.phi = Math.max(PHI_MIN, Math.min(PHI_MAX, orbit.phi - dy * 0.008));
     kick();
   }
 });
-// axisVec まわりに、pointWorld を pivotWorld を通る軸で少しだけ回したとき、画面上でどちらへ動くか
-function screenMotion(axisVec, pivotWorld, pointWorld) {
-  const q = new THREE.Quaternion().setFromAxisAngle(axisVec, 0.08);
-  const rel = pointWorld.clone().sub(pivotWorld).applyQuaternion(q).add(pivotWorld);
-  const p0 = projectToScreen(pointWorld), p1 = projectToScreen(rel);
-  return { x: p1.x - p0.x, y: p1.y - p0.y };
-}
 // 回す・倒すの dir（game-extra.js の rotate90 の向き）と、Three.js の物理的な回転角の符号は
 // 軸ごとにずれる（y は同じ向き、x・z は逆向き）。animRotateSliceExtra・animTiltExtra と揃える。
 const SLICE_ANGLE_SIGN = { y: 1, x: -1, z: -1 };
-const AXIS_VEC = { x: X_AXIS, y: Y_AXIS, z: Z_AXIS };
-// ルービックキューブと同じ: 触った面の上でスワイプすると、そのマスを通る 1 枚が指の動いた向きに回る。
-// 回す軸は、触った面に平行な 2 本のうち、回したときの動きが指の向きに近いほう。タップでは回さない。
+// マスを長押しして出た矢印の上で指を離すと、そのマスを通る 1 枚が矢印の向きに回る。ほかの場所で離せば取り消し。
 function endDragExtra(ds, e) {
-  if (!ds.hit || busy) { kick(); return; }
-  const dx = e.clientX - ds.x0, dy = e.clientY - ds.y0;
-  if (Math.hypot(dx, dy) < 8) { kick(); return; }
-  const { point, face } = ds.hit;
-  const pivot = cageGroup.getWorldPosition(new THREE.Vector3());
-  let best = null;
-  for (const axis of ['x', 'y', 'z']) {
-    if (axis === face) continue;
-    const m = screenMotion(AXIS_VEC[axis], pivot, point);
-    const dot = (m.x * dx + m.y * dy) / (Math.hypot(m.x, m.y) || 1);
-    if (!best || Math.abs(dot) > Math.abs(best.dot)) best = { axis, dot };
-  }
-  const { axis } = best;
-  const move = { type: 'rotate', axis, layer: ds.hit[axis], dir: (best.dot >= 0 ? 1 : -1) * SLICE_ANGLE_SIGN[axis] };
+  clearTimeout(ds.timer);
+  if (!ds.arrows) { kick(); return; }
+  const arrow = pickArrow(e.clientX, e.clientY);
+  clearArrows();
+  if (!arrow || busy) return;
+  const move = arrow.userData.move;
   if (GE.isLegal(game, move)) { $('notice').textContent = ''; commit(move); }
   else { Sound.bad(); $('notice').textContent = BANNED_MOVE_MSG; kick(); }
 }
@@ -874,7 +932,8 @@ function endDrag(e) {
   else { Sound.bad(); $('notice').textContent = BANNED_MOVE_MSG; kick(); }
 }
 sceneCanvas.addEventListener('pointerup', endDrag);
-sceneCanvas.addEventListener('pointercancel', () => { dragState = null; highlightTier(null); kick(); });
+sceneCanvas.addEventListener('contextmenu', (e) => e.preventDefault()); // 長押しでメニューを出さない
+sceneCanvas.addEventListener('pointercancel', () => { clearTimeout(dragState?.timer); dragState = null; highlightTier(null); clearArrows(); });
 
 
 // ---- 重力で落ちる分だけ、位置をなめらかに動かす ----
@@ -1826,4 +1885,4 @@ $('menu-restart').addEventListener('click', () => {
 });
 
 renderTitle();
-window.__dtDebug = { ground, panelGroup, frameGroup, markerGroup, cubesGroup, tierHighlightMesh, scene, camera, kick };
+window.__dtDebug = { arrowGroup, ground, panelGroup, frameGroup, markerGroup, cubesGroup, tierHighlightMesh, scene, camera, kick };

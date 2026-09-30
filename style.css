@@ -168,7 +168,7 @@ button { font: inherit; color: inherit; }
   border: 1px solid color-mix(in srgb, var(--pc) 26%, var(--line));
   transition: border-color 0.3s;
 }
-.scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; user-select: none; }
+.scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .scene__undo { position: absolute; left: 8px; bottom: 8px; opacity: 0.85; }
 .scene__undo:disabled { opacity: 0.3; }
 
