@@ -169,7 +169,7 @@ function drawDemoCage(ctx, w, h, board) {
   for (const c of cells) {
     const [sx, sy] = iso(c.x, c.z, c.t);
     ctx.beginPath();
-    ctx.roundRect(sx - size / 2, sy - size / 2, size, size, size * 0.22);
+    ctx.rect(sx - size / 2, sy - size / 2, size, size);
     if (c.color >= 0) {
       ctx.fillStyle = COLOR_META[c.color].hex;
       ctx.fill();
@@ -297,7 +297,6 @@ scene.add(cageGroup);
 const BRASS = 0x16182b; // 変数名は据え置き。かごの枠の色（墨）
 const postMat = new THREE.MeshLambertMaterial({ color: BRASS });
 const axisMat = new THREE.MeshLambertMaterial({ color: 0x2a2d4a });
-const jointMat = new THREE.MeshLambertMaterial({ color: 0xf2b632 });
 
 function edgeBetween(a, b, radius, material) {
   const start = new THREE.Vector3(...a), end = new THREE.Vector3(...b);
@@ -310,44 +309,35 @@ function edgeBetween(a, b, radius, material) {
   return m;
 }
 
+// マス 1 つ分の立方体の枠（12 本の細い棒）を 1 つのジオメトリにまとめたもの。
+// 通常もエクストラも、かごはこれをマスごとに並べて作る（回す段・面は、そのマスの枠ごと回る）。
+const CAGE_ROD = 0.028;
+const cellWireGeo = (() => {
+  const h = 0.5, pos = [], nor = [];
+  for (const a of [-h, h]) for (const b of [-h, h]) {
+    for (const [p, q] of [[[-h, a, b], [h, a, b]], [[a, -h, b], [a, h, b]], [[a, b, -h], [a, b, h]]]) {
+      const m = edgeBetween(p, q, CAGE_ROD, postMat);
+      m.updateMatrix();
+      const g = m.geometry.toNonIndexed().applyMatrix4(m.matrix);
+      pos.push(...g.attributes.position.array);
+      nor.push(...g.attributes.normal.array);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  return geo;
+})();
+function cellWire(x, y, z) {
+  const m = new THREE.Mesh(cellWireGeo, postMat);
+  m.position.set(x, y, z);
+  return m;
+}
+
 function buildFrame() {
-  // かごはちょうど 3×3×3 マスの立方体（±FRAME_R）。枠の柱もこの範囲にきっちり収め、
-  // 軸だけ突き出て見えないようにする。
-  const Y0 = -FRAME_R, Y1 = FRAME_R;
-  // 柱はマスの境目（±0.5・±1.5）に立てて、各面の窓を 3×3 にする（外周 12 本）
-  const R = FRAME_R, lines = [-R, -R / 3, R / 3, R];
-  const posts = [];
-  // 外周の柱は箱の面（±1.49）にめり込まないよう、少しだけ外に出す
-  const out = (c) => (Math.abs(c) === R ? Math.sign(c) * (R + 0.06) : c);
-  for (const x of lines) for (const z of lines) if (Math.abs(x) === R || Math.abs(z) === R) posts.push([out(x), out(z)]);
-  // ルービックキューブのように、柵も段ごとに分けて持つ（回す段は、その段の柵ごと回る）。
-  // 段ごとに上下の輪を少し内側に置き、段の境目に細い継ぎ目が見えるようにする。
-  const corners = [[-R, -R], [R, -R], [R, R], [-R, R]].map(([x, z]) => [out(x), out(z)]);
-  const SEAM = 0.025;
-  for (let t = 0; t < 3; t++) {
-    const yb = yOf(t) - 0.5, yt = yOf(t) + 0.5;
-    for (const [x, z] of posts) tierFrames[t].add(edgeBetween([x, yb + SEAM, z], [x, yt - SEAM, z], 0.07, postMat));
-    for (const y of [yb + SEAM, yt - SEAM]) {
-      for (let i = 0; i < 4; i++) {
-        const [x1, z1] = corners[i], [x2, z2] = corners[(i + 1) % 4];
-        tierFrames[t].add(edgeBetween([x1, y, z1], [x2, y, z2], 0.05, postMat));
-      }
-    }
-  }
-  frameGroup.add(edgeBetween([0, Y0, 0], [0, Y1, 0], 0.14, axisMat)); // ふさがっている中心の軸（回らない）
-  // 柱の四隅の端に小さな面取りの金具を付けて、組み立てた機械らしくする（角のみ。中の柱は素通し）
-  const jointGeo = new THREE.IcosahedronGeometry(0.1, 1);
-  for (const y of [Y0, Y1]) {
-    for (const [x, z] of corners) {
-      const j = new THREE.Mesh(jointGeo, jointMat);
-      j.position.set(x, y, z);
-      tierFrames[y < 0 ? 0 : 2].add(j);
-    }
-    // 中心軸の上下の端にも小さなキャップ
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), jointMat);
-    cap.position.set(0, y, 0);
-    frameGroup.add(cap);
-  }
+  // 段ごとに 3×3 マスの枠を持つ（ルービックキューブのように、回す段はその段の枠ごと回る）
+  for (let t = 0; t < 3; t++) for (const x of [-1, 0, 1]) for (const z of [-1, 0, 1]) tierFrames[t].add(cellWire(x, yOf(t), z));
+  frameGroup.add(edgeBetween([0, -FRAME_R, 0], [0, FRAME_R, 0], 0.14, axisMat)); // ふさがっている中心の軸（回らない）
   // 側面をふさぐ 1 枚のガラス箱（内側だけ描く BackSide）。4 枚の板を別々に置くと、斜めから
   // 見たときに板どうしが重なって格子状のちらつきが出たので、継ぎ目のない 1 個の箱にした。
   // フレネル風のシェーダーで、面を正面から見ると透け、縁（視線が斜めになる場所）ほど明るくする。
@@ -376,14 +366,12 @@ function buildFrame() {
 }
 buildFrame();
 
-// エクストラルール（軸なし）は段を分けて回さないので、格子（ジャングルジム）はまるごと 1 つの
-// 固定の骨組みでよい。各マスの境目の線を x・y・z 方向それぞれ 4×4 本、細い棒で描く。
+// エクストラルール（軸なし）: 27 マスそれぞれの枠。回す 1 枚は、そのマスの枠ごと回す
 function buildCageExtra() {
-  const R = FRAME_R, lines = [-R, -R / 3, R / 3, R];
-  for (const a of lines) for (const b of lines) {
-    frameGroupE.add(edgeBetween([-R, a, b], [R, a, b], 0.028, postMat)); // x 方向
-    frameGroupE.add(edgeBetween([a, -R, b], [a, R, b], 0.028, postMat)); // y 方向
-    frameGroupE.add(edgeBetween([a, b, -R], [a, b, R], 0.028, postMat)); // z 方向
+  for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) {
+    const m = cellWire(...extraCellPos(x, y, z));
+    m.userData.cell = { x, y, z };
+    frameGroupE.add(m);
   }
 }
 buildCageExtra();
@@ -489,8 +477,8 @@ function cubeTexture(color) {
   cv.width = cv.height = W;
   const x = cv.getContext('2d');
   x.fillStyle = COLOR_META[color].hex;
-  x.beginPath(); x.roundRect(3, 3, W - 6, W - 6, 10); x.fill();
-  // 記号は使わず、幾何学的な色の角丸四角に細い縁取りだけを付ける
+  x.beginPath(); x.rect(0, 0, W, W); x.fill();
+  // 記号は使わず、色の面に細い縁取りだけを付ける
   x.strokeStyle = 'rgba(0,0,0,0.22)';
   x.lineWidth = 3;
   x.stroke();
@@ -509,26 +497,7 @@ function cubeMaterial(color, ghost) {
   cubeMatCache.set(key, m);
   return m;
 }
-// 角を少し丸めた箱（RoundedBoxGeometry 相当を自前で作る）。BoxGeometry を細かく分割し、
-// 角・辺に近い頂点だけを中心方向へ丸めることで、面ごとの陰影がはっきり付くようにする。
-function roundedBoxGeometry(size, radius, segments) {
-  const geo = new THREE.BoxGeometry(size, size, size, segments, segments, segments);
-  const half = size / 2, inner = half - radius;
-  const pos = geo.attributes.position;
-  const v = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos, i);
-    const cx = THREE.MathUtils.clamp(v.x, -inner, inner);
-    const cy = THREE.MathUtils.clamp(v.y, -inner, inner);
-    const cz = THREE.MathUtils.clamp(v.z, -inner, inner);
-    const dx = v.x - cx, dy = v.y - cy, dz = v.z - cz;
-    const len = Math.hypot(dx, dy, dz);
-    if (len > 1e-6) pos.setXYZ(i, cx + (dx / len) * radius, cy + (dy / len) * radius, cz + (dz / len) * radius);
-  }
-  geo.computeVertexNormals();
-  return geo;
-}
-const cubeGeo = roundedBoxGeometry(0.98, 0.1, 4);
+const cubeGeo = new THREE.BoxGeometry(0.98, 0.98, 0.98);
 function makeCube(color, ghost) {
   return new THREE.Mesh(cubeGeo, cubeMaterial(color, ghost));
 }
@@ -907,7 +876,6 @@ function endDrag(e) {
 sceneCanvas.addEventListener('pointerup', endDrag);
 sceneCanvas.addEventListener('pointercancel', () => { dragState = null; highlightTier(null); kick(); });
 
-$('view-reset').addEventListener('click', () => { orbit = { ...HOME }; Sound.select(); kick(); });
 
 // ---- 重力で落ちる分だけ、位置をなめらかに動かす ----
 // ---- 着地の光の輪（箱が落ちた場所に、広がって消える輪） ----
@@ -1121,8 +1089,7 @@ async function animUndo(beforeBoard, afterBoard, move, dur) {
 // ==========================================================================
 // ---- エクストラルール（軸なし・3×3×3）のアニメーション ----
 // 段（1 枚）を回すのは animRotateSliceExtra、かご全体を倒す・返すのは cageGroup をまとめて
-// 回すだけでよい（ponytail: 段ごとに柵を割って回す公式の frame 演出はここでは作らない。
-// 見た目は箱だけが実際に回る、ふちの薄いガラス箱はそのまま）。
+// 回すだけでよい（回す 1 枚は、そのマスの枠も一緒に回す）。
 // ==========================================================================
 async function animateGravityUnsettleExtra(fromBoard, toBoard, dur) {
   const lifts = [];
@@ -1175,9 +1142,13 @@ async function animRotateSliceExtra(beforeBoard, move, dur, ghost) {
     mesh.position.set(wx - pivotPos[0], wy - pivotPos[1], wz - pivotPos[2]);
     pivot.add(mesh);
   }
+  const wires = frameGroupE.children.filter((m) => m.userData.cell[axis] === layer);
+  for (const m of wires) pivot.attach(m);
   if (axis === 'y') highlightTier(layer); // 横の段のときだけ、公式と同じ光る帯を出す
   const rotEase = reduced.matches ? easeOutCubic : easeOutBack;
   await tween(dur, (p) => { pivot.quaternion.setFromAxisAngle(axisVec, angle * rotEase(p)); });
+  // 90° 回った枠は元と同じ形なので、元の位置に戻して終わり
+  for (const m of wires) { const c = m.userData.cell; frameGroupE.add(m); m.position.set(...extraCellPos(c.x, c.y, c.z)); m.quaternion.identity(); }
   pivot.removeFromParent();
   const rotatedNoGravity = GE.rotateSlice(beforeBoard, axis, layer, dir);
   snapExtra(rotatedNoGravity, ghost);
