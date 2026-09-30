@@ -332,6 +332,20 @@ for (const players of [2, 3, 4]) {
 }
 console.log('エクストラ 色・手持ちの割り当て: ok');
 
+// ---- エクストラ 2 人だけ、1 人 4 色×3 個（公式の 3 色×4 個だと先手必勝と分かったため） ----
+{
+  const g = E.newGame(2, () => 0);
+  assert.deepEqual(Object.keys(g.hand[0]).map(Number).sort(), [0, 1, 2, 6], '先手の持ち色が 0,1,2,6 でない');
+  assert.deepEqual(Object.keys(g.hand[1]).map(Number).sort(), [3, 4, 5, 7], '後手の持ち色が 3,4,5,7 でない');
+  assert.ok(Object.values(g.hand[0]).every((n) => n === 3), '先手の持ち数が 4 色×3 個でない');
+  assert.ok(Object.values(g.hand[1]).every((n) => n === 3), '後手の持ち数が 4 色×3 個でない');
+  assert.equal(E.colorOwner(2, 6), 0, '色 6 の持ち主が先手でない');
+  assert.equal(E.colorOwner(2, 7), 1, '色 7 の持ち主が後手でない');
+  // 公式（game.js）は今まで通り 1 人 3 色×4 個のまま
+  assert.deepEqual(Object.keys(newGame(2, () => 0).hand[0]).map(Number).sort(), [0, 1, 2], '公式の先手の持ち色が変わってしまった');
+}
+console.log('エクストラ 2 人の 4 色×3 個: ok');
+
 // ---- 「下にしたい面」をタップしたときの対応（FACE_TILT）。その面がちょうど下（y=0）に来る ----
 {
   const faceCells = (key) => {

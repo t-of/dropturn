@@ -45,7 +45,11 @@ const COLOR_META = [
   { hex: '#1e9e6a', mark: '■' }, // 3 緑
   { hex: '#2f57e0', mark: '✚' }, // 4 青
   { hex: '#7446d8', mark: '★' }, // 5 紫
+  { hex: '#a8672f', mark: '⬟' }, // 6 飴色（エクストラ 2 人だけ）
+  { hex: '#1b8fa3', mark: '⬢' }, // 7 鴨の羽色（エクストラ 2 人だけ）
 ];
+// 今のルールに合わせた色の割り当て・持ち主（エクストラ 2 人だけ公式と違う）
+const playerColors = (g) => (g.rules === 'extra' ? GE.PLAYER_COLORS : G.PLAYER_COLORS)[g.players];
 // 列 k(0-7) の (x, z) 位置（3×3 の外周。中心は軸でふさがっている）
 const COL_XZ = [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2], [1, 2], [0, 2], [0, 1]];
 const playerName = (p) => `プレイヤー ${p + 1}`;
@@ -1312,7 +1316,7 @@ let handDrag = null;      // 手持ちの箱をドラッグ中の状態 { color,
 
 function loadGame() {
   const g = load('game', null);
-  if (!g || g.over || !G.PLAYER_COLORS[g.players]) return null;
+  if (!g || g.over || !(g.rules === 'extra' ? GE : G).PLAYER_COLORS[g.players]) return null;
   return G.migrateSeen(g); // 古い保存データ（seen を持たない）を引き継ぐ
 }
 function persist() {
@@ -1608,7 +1612,7 @@ async function commitExtra(move) {
 // ---- 画面の描画（文字・ボタン。かごの中身はここでは書き換えない） ----
 function render() {
   if (!game) return;
-  const moverColors = G.PLAYER_COLORS[game.players][game.turn];
+  const moverColors = playerColors(game)[game.turn];
 
   $('turn-text').textContent = game.over ? '' : `${seatName(game.turn)}${cpuThinking ? ' 考え中…' : ' の番'}`;
   if (!game.over) {
@@ -1662,7 +1666,7 @@ function finish(before) {
       Sound.draw();
     } else {
       const owner = game.winner;
-      const colors = G.PLAYER_COLORS[game.players][owner];
+      const colors = playerColors(game)[owner];
       const hex = COLOR_META[colors[0]].hex;
       $('result-head').textContent = `${seatName(owner)} の勝ち`;
       $('result-head').style.color = hex;
@@ -1687,7 +1691,7 @@ function finish(before) {
 function shareText() {
   if (game.draw) return `DROPTURN（${game.players} 人）で ${game.moves} 手の末に引き分け`;
   const owner = game.winner;
-  const colors = G.PLAYER_COLORS[game.players][owner];
+  const colors = playerColors(game)[owner];
   return `DROPTURN（${game.players} 人）で ${COLOR_META[colors[0]].mark} ${seatName(owner)} が ${game.moves} 手で勝った！`;
 }
 $('share-result').addEventListener('click', () => WebAppKit.share({ text: shareText() }));

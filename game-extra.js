@@ -4,8 +4,16 @@
 // マス = idx(x, y, z)。x は左右 0..2、y は上下（重力の向き）0..2、z は前後 0..2。軸はなく、27 マスすべてに箱が入る。
 // 落とす入口は上面の 9 列（x, z の組）すべて。
 
-import { PLAYER_COLORS, colorOwner, boardsEqual, migrateSeen } from './game.js';
-export { PLAYER_COLORS, colorOwner, boardsEqual, migrateSeen };
+import { PLAYER_COLORS as OFFICIAL_PLAYER_COLORS, boardsEqual, migrateSeen } from './game.js';
+export { boardsEqual, migrateSeen };
+
+// 色の割り当ては公式と同じにするが、2 人だけ違う（研究の結果、公式と同じ 1 人 3 色×4 個だと先手が
+// 9 手で必ず勝てると分かったため。1 人 4 色×3 個・計 24 個にして避ける）。3・4 人は研究していないので公式のまま
+export const PLAYER_COLORS = { ...OFFICIAL_PLAYER_COLORS, 2: [[0, 1, 2, 6], [3, 4, 5, 7]] };
+
+export function colorOwner(players, color) {
+  return PLAYER_COLORS[players].findIndex((cs) => cs.includes(color));
+}
 
 export const EMPTY = -1;
 export const N = 3;
