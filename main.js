@@ -716,20 +716,7 @@ function pickEntryNear(x, y) {
   }
   return bestD <= maxDist ? best : null;
 }
-function cageCenterScreenX() {
-  const wp = new THREE.Vector3();
-  cageGroup.getWorldPosition(wp);
-  return projectToScreen(wp).x;
-}
-function pickTier(x, y) {
-  raycaster.setFromCamera(ndc(x, y), camera);
-  const targets = [...frameGroup.children, ...panelGroup.children, ...boxes.filter(Boolean)];
-  const hit = raycaster.intersectObjects(targets, true)[0];
-  if (!hit) return null;
-  const local = cageGroup.worldToLocal(hit.point.clone());
-  return Math.max(0, Math.min(2, Math.round(local.y + 1)));
-}
-// エクストラルール: 指の下にある、かごの外側の面のマス（x, y, z と、その面の向き face・外向き sign）
+// 指の下にある、かごの外側の面のマス（x, y, z と、その面の向き face・外向き sign）
 const CAGE_BOX = new THREE.Box3(new THREE.Vector3(-FRAME_R, -FRAME_R, -FRAME_R), new THREE.Vector3(FRAME_R, FRAME_R, FRAME_R));
 function pickCellExtra(x, y) {
   raycaster.setFromCamera(ndc(x, y), camera);
@@ -742,7 +729,7 @@ function pickCellExtra(x, y) {
   return { x: cell(p.x), y: cell(p.y), z: cell(p.z), face, sign: Math.sign(p[face]) };
 }
 
-// ---- エクストラルール「回す」: マスを長押しすると出る矢印ボタン ----
+// ---- 「回す」: マスを長押しすると出る矢印ボタン（通常ルールは横の 2 本だけ） ----
 // 矢印は、その向きの隣のマスの、押したマスとの境目の辺に接して小さく出す。
 // 隣が無い（面の端）ときは、押したマス自身の、その辺に接して出す。
 const ARROW_SIZE = 0.34;
@@ -785,12 +772,13 @@ function showArrows(hit) {
   for (const u of 'xyz') {
     if (u === face) continue;
     const w = 'xyz'.replace(face, '').replace(u, ''); // 回す軸（面にも矢印の向きにも垂直）
+    if (MODE !== 'extra' && w !== 'y') continue; // 通常ルールは段（横）しか回せない
     for (const s of [1, -1]) {
       const d = new THREE.Vector3(); d[u] = s;
       const hasNeighbor = hit[u] + s >= 0 && hit[u] + s <= 2;
       // 辺に接する位置: 隣のマスの内側、または自分のマスの内側
       const pos = center.clone().addScaledVector(d, hasNeighbor ? 0.5 + ARROW_SIZE / 2 : 0.5 - ARROW_SIZE / 2);
-      // 回す向き: 軸 w まわりの正の回転でこのマスが d へ動くなら正（endDragExtra と同じ SLICE_ANGLE_SIGN）
+      // 回す向き: 軸 w まわりの正の回転でこのマスが d へ動くなら正（endDragArrows と同じ SLICE_ANGLE_SIGN）
       const wv = new THREE.Vector3(); wv[w] = 1;
       const physical = Math.sign(new THREE.Vector3().crossVectors(wv, center).dot(d)) || 1;
       const mat = new THREE.MeshBasicMaterial({ map: arrowTex, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
@@ -798,7 +786,10 @@ function showArrows(hit) {
       m.renderOrder = 10;
       m.position.copy(pos);
       m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(d, new THREE.Vector3().crossVectors(n, d), n));
-      m.userData.move = { type: 'rotate', axis: w, layer: hit[w], dir: physical * SLICE_ANGLE_SIGN[w] };
+      // 通常ルールの dir は、animRotatePhysical の角度 -dir·90° に合わせる
+      m.userData.move = MODE === 'extra'
+        ? { type: 'rotate', axis: w, layer: hit[w], dir: physical * SLICE_ANGLE_SIGN[w] }
+        : { type: 'rotate', tier: hit.y, dir: -physical };
       arrowGroup.add(m);
     }
   }
@@ -838,9 +829,18 @@ function updateTiltFaces() {
   kick();
 }
 
-// 段は「かごをタップ」で直接決める。動かさずに離すと、離した位置がかごの中心より
-// 右なら右回り・左なら左回りで、その場で回す（決定は挟まない）。動かせば、いつもどおり視点が回る。
+// マスを長押しすると矢印が出る（startLongPress）。長押しの前に動かせば、いつもどおり視点が回る。
 let dragState = null;
+function startLongPress(ds, onShow) {
+  ds.timer = setTimeout(() => {
+    if (dragState !== ds || ds.moved || busy) return;
+    ds.arrows = true;
+    onShow?.();
+    showArrows(ds.hit);
+    Sound.select();
+    navigator.vibrate?.(12);
+  }, LONG_PRESS_MS);
+}
 sceneCanvas.addEventListener('pointerdown', (e) => {
   sceneCanvas.setPointerCapture(e.pointerId);
   if (MODE === 'extra') {
@@ -850,25 +850,17 @@ sceneCanvas.addEventListener('pointerdown', (e) => {
       else hit = pickCellExtra(e.clientX, e.clientY);
     }
     dragState = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, hit, faceHit, moved: false, arrows: false };
-    if (hit) {
-      const ds = dragState;
-      ds.timer = setTimeout(() => {
-        if (dragState !== ds || ds.moved || busy) return;
-        ds.arrows = true;
-        showArrows(hit);
-        Sound.select();
-        navigator.vibrate?.(12);
-      }, LONG_PRESS_MS);
-    }
+    if (hit) startLongPress(dragState);
     kick();
     return;
   }
   let hit = null;
   if (!busy && !cpuThinking && game && !game.over && !handDrag && !pendingFlip && humansTurn()) {
-    const tier = pickTier(e.clientX, e.clientY);
-    if (tier != null) { hit = { tier }; highlightTier(tier); }
+    hit = pickCellExtra(e.clientX, e.clientY);
+    if (hit?.face === 'y') hit = null; // 上・下の面からは段を回せない（矢印が出ない）
   }
-  dragState = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, hit, moved: false };
+  dragState = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, hit, moved: false, arrows: false };
+  if (hit) startLongPress(dragState, () => highlightTier(hit.y));
   kick();
 });
 sceneCanvas.addEventListener('pointermove', (e) => {
@@ -877,10 +869,9 @@ sceneCanvas.addEventListener('pointermove', (e) => {
   dragState.x = e.clientX; dragState.y = e.clientY;
   if (!dragState.moved && Math.hypot(e.clientX - dragState.x0, e.clientY - dragState.y0) > 8) {
     dragState.moved = true;
-    if (dragState.hit && MODE !== 'extra') highlightTier(null); // 動いたら視点回転に切り替え、光は消す
   }
-  // エクストラルールでは、矢印が出ていれば指の下の矢印を選ぶだけ。出る前に動かせば視点を回す。
-  if (MODE === 'extra' && dragState.arrows) { setArrowHover(pickArrow(e.clientX, e.clientY)); return; }
+  // 矢印が出ていれば指の下の矢印を選ぶだけ。出る前に動かせば視点を回す。
+  if (dragState.arrows) { setArrowHover(pickArrow(e.clientX, e.clientY)); return; }
   if ((!dragState.hit && !dragState.faceHit) || dragState.moved) {
     orbit.theta -= dx * 0.008;
     orbit.phi = Math.max(PHI_MIN, Math.min(PHI_MAX, orbit.phi - dy * 0.008));
@@ -891,14 +882,15 @@ sceneCanvas.addEventListener('pointermove', (e) => {
 // 軸ごとにずれる（y は同じ向き、x・z は逆向き）。animRotateSliceExtra・animTiltExtra と揃える。
 const SLICE_ANGLE_SIGN = { y: 1, x: -1, z: -1 };
 // マスを長押しして出た矢印の上で指を離すと、そのマスを通る 1 枚が矢印の向きに回る。ほかの場所で離せば取り消し。
-function endDragExtra(ds, e) {
+function endDragArrows(ds, e) {
   clearTimeout(ds.timer);
+  highlightTier(null);
   if (!ds.arrows) { kick(); return; }
   const arrow = pickArrow(e.clientX, e.clientY);
   clearArrows();
   if (!arrow || busy) return;
   const move = arrow.userData.move;
-  if (GE.isLegal(game, move)) { $('notice').textContent = ''; commit(move); }
+  if ((MODE === 'extra' ? GE : G).isLegal(game, move)) { $('notice').textContent = ''; commit(move); }
   else { Sound.bad(); $('notice').textContent = BANNED_MOVE_MSG; kick(); }
 }
 // エクストラルール「倒す」: 動かさずに離した面が、下にしたい面（動かせば、いつもどおり視点回転）
@@ -916,13 +908,7 @@ function endDrag(e) {
   dragState = null;
   if (!ds) { kick(); return; }
   if (MODE === 'extra' && pendingTilt) { endTiltFaceTap(ds); return; }
-  if (MODE === 'extra') { endDragExtra(ds, e); return; }
-  if (ds.moved || !ds.hit || busy) { highlightTier(null); kick(); return; }
-  const dir = e.clientX >= cageCenterScreenX() ? -1 : 1; // 右をタップ → 手前が右へ動く（上から見て左回り）
-  const move = { type: 'rotate', tier: ds.hit.tier, dir };
-  highlightTier(null);
-  if (G.isLegal(game, move)) { $('notice').textContent = ''; commit(move); }
-  else { Sound.bad(); $('notice').textContent = BANNED_MOVE_MSG; kick(); }
+  endDragArrows(ds, e);
 }
 sceneCanvas.addEventListener('pointerup', endDrag);
 sceneCanvas.addEventListener('contextmenu', (e) => e.preventDefault()); // 長押しでメニューを出さない
